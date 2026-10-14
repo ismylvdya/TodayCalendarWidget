@@ -10,8 +10,14 @@ struct DayConfig {
     var hidePastCalendarIDs: Set<String> = []
     /// Календари, чьи события в монохроме рисуются инвертированно (сплошная заливка).
     var invertCalendarIDs: Set<String> = []
-    /// Прошедшие события чуть приглушаются.
+    /// Прошедшие события чуть приглушаются во всех календарях.
     var dimPastEvents = false
+    /// Календари, чьи события (включая all-day) приглушены всегда.
+    var dimCalendarIDs: Set<String> = []
+
+    func isDimmed(_ ev: DayEvent, now: Date) -> Bool {
+        dimCalendarIDs.contains(ev.calendarID) || (dimPastEvents && ev.end <= now)
+    }
 
     /// Границы четырьмя числами в 0...24, 0 в конце = полночь (24).
     /// Если они не строго по возрастанию, остаются значения по умолчанию.

@@ -61,6 +61,9 @@ struct PlacedEvent: Identifiable {
     let end: Date
     let lane: Int
     let lanes: Int
+    /// Событие начинается раньше колонки / продолжается после неё.
+    var continuesBefore: Bool { event.start < start }
+    var continuesAfter: Bool { event.end > end }
     var id: String { event.id }
 }
 
@@ -150,17 +153,39 @@ private func isInverted(_ ev: DayEvent, _ config: DayConfig, _ mode: WidgetRende
 extension View {
     /// Подложка события. Обычно — полупрозрачная заливка цветом календаря.
     /// В инвертированном виде фигура залита сплошным цветом полоски, а сам контент
-    /// (текст, полоска, иконка) выбит до фона и подкрашен цветом обычной подложки.
+    /// (текст, полоска, иконка) выбит до фона — все одного цвета.
+    /// `fade` — затухание заливки сверху/снизу для событий, перенесённых через границу колонок.
     @ViewBuilder
-    func eventBackground<S: Shape>(_ shape: S, color: Color, opacity: Double, inverted: Bool) -> some View {
+    func eventBackground<S: Shape>(_ shape: S, color: Color, opacity: Double, inverted: Bool,
+                                   fade: (top: Bool, bottom: Bool) = (false, false)) -> some View {
+        // Инвертированная заливка чуть прозрачнее белого, чтобы курсор оставался самым ярким.
+        let fill = shape.fill(color.opacity(inverted ? 0.85 : opacity)).mask(FadeMask(top: fade.top, bottom: fade.bottom))
         if inverted {
             self.blendMode(.destinationOut)
-                .background(shape.fill(color))
+                .background(fill)
                 .compositingGroup()
-            .overlay(self.opacity(opacity))
-            .widgetAccentable()
+                .widgetAccentable()
         } else {
-            self.background(shape.fill(color.opacity(opacity)))
+            self.background(fill)
+        }
+    }
+}
+
+/// Маска, которая растворяет заливку к верхнему и/или нижнему краю.
+struct FadeMask: View {
+    let top: Bool
+    let bottom: Bool
+    private let length: CGFloat = 18
+
+    var body: some View {
+        GeometryReader { geo in
+            let f = min(length / max(geo.size.height, 1), 0.5)
+            LinearGradient(stops: [
+                .init(color: .black.opacity(top ? 0 : 1), location: 0),
+                .init(color: .black, location: top ? f : 0),
+                .init(color: .black, location: bottom ? 1 - f : 1),
+                .init(color: .black.opacity(bottom ? 0 : 1), location: 1),
+            ], startPoint: .top, endPoint: .bottom)
         }
     }
 }
@@ -192,6 +217,7 @@ struct AllDayList: View {
                         .eventBackground(Capsule(), color: eventTint(ev, mode), opacity: 0.35,
                                          inverted: isInverted(ev, config, mode))
                         .widgetAccentable()
+                        .opacity(config.dimCalendarIDs.contains(ev.calendarID) ? 0.55 : 1)
                 }
                 if events.count > 3 {
                     Text("+\(events.count - 3)").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
@@ -213,6 +239,8 @@ struct ColumnView: View {
     /// Центр кружка курсора относительно левого края колонки (левее цифр часов).
     private let cursorX: CGFloat = -5
     private let cursorDot: CGFloat = 9
+    /// На сколько перенесённое событие заходит за границу колонки — до края цифр часа.
+    private let overshoot: CGFloat = 7
 
     var body: some View {
         GeometryReader { geo in
@@ -243,10 +271,14 @@ struct ColumnView: View {
                 // События
                 ForEach(Layout.place(entry.visibleEvents, from: from, to: to)) { p in
                     let laneWidth = eventsWidth / CGFloat(p.lanes)
-                    let y0 = y(p.start)
-                    let h = max(y(p.end) - y0 - 1, 13)
-                    EventBlock(event: p.event, height: h, isPast: entry.config.dimPastEvents && p.event.end <= entry.date,
-                               inverted: isInverted(p.event, entry.config, mode), mode: mode)
+                    // Перенесённое событие выходит за границу колонки до края цифр часа,
+                    // чтобы затухание заканчивалось (начиналось) на уровне подписи.
+                    let y0 = y(p.start) - (p.continuesBefore ? overshoot : 0)
+                    let y1 = y(p.end) + (p.continuesAfter ? overshoot : -1)
+                    let h = max(y1 - y0, 13)
+                    EventBlock(event: p.event, height: h, dimmed: entry.config.isDimmed(p.event, now: entry.date),
+                               inverted: isInverted(p.event, entry.config, mode),
+                               continuesBefore: p.continuesBefore, continuesAfter: p.continuesAfter, mode: mode)
                         .frame(width: laneWidth - 2, height: h)
                         .offset(x: gutter + CGFloat(p.lane) * laneWidth, y: y0 + 0.5)
                 }
@@ -259,7 +291,8 @@ struct ColumnView: View {
                         Circle().frame(width: cursorDot, height: cursorDot)
                         Rectangle().frame(height: 2.4)
                     }
-                    .foregroundStyle(Theme.cursor)
+                    // В монохроме яркость = светлота цвета, поэтому курсор чисто белый — ярче всего остального.
+                    .foregroundStyle(mode == .fullColor ? Theme.cursor : .white)
                     .frame(width: geo.size.width - cursorX + cursorDot / 2)
                     .offset(x: cursorX - cursorDot / 2, y: yy - cursorDot / 2)
                     .widgetAccentable()
@@ -272,8 +305,10 @@ struct ColumnView: View {
 struct EventBlock: View {
     let event: DayEvent
     let height: CGFloat
-    let isPast: Bool
+    let dimmed: Bool
     let inverted: Bool
+    let continuesBefore: Bool
+    let continuesAfter: Bool
     let mode: WidgetRenderingMode
 
     private static let timeFormat: DateFormatter = {
@@ -284,11 +319,11 @@ struct EventBlock: View {
 
     var body: some View {
         let color = eventTint(event, mode)
-        HStack(alignment: .top, spacing: 4) {
-            RoundedRectangle(cornerRadius: 1.5)
-                .fill(color)
-                .frame(width: 3)
-                .widgetAccentable()
+        // На стыке колонок углы прямые, а полоска доходит до самого края.
+        let top: CGFloat = continuesBefore ? 0 : 5, bottom: CGFloat = continuesAfter ? 0 : 5
+        let shape = UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
+                                           bottomTrailingRadius: bottom, topTrailingRadius: top)
+        HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(event.title)
                     .font(.system(size: 11, weight: .semibold))
@@ -296,17 +331,30 @@ struct EventBlock: View {
                 if height > 34 {
                     Text(Self.timeFormat.string(from: event.start))
                         .font(.system(size: 10, weight: .medium).monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(inverted ? HierarchicalShapeStyle.primary : .secondary)  // при инверсии выбивается целиком, как заголовок
                 }
             }
             .padding(.top, height > 16 ? 2 : 0)
             Spacer(minLength: 0)
         }
         .padding(3)
+        .padding(.leading, 7)
         .frame(maxHeight: .infinity, alignment: .top)
-        .eventBackground(RoundedRectangle(cornerRadius: 5), color: color, opacity: 0.22, inverted: inverted)
-        .clipShape(RoundedRectangle(cornerRadius: 5))
-        .opacity(isPast ? 0.55 : 1)
+        .overlay(alignment: .leading) {
+            UnevenRoundedRectangle(topLeadingRadius: continuesBefore ? 0 : 1.5, bottomLeadingRadius: continuesAfter ? 0 : 1.5,
+                                   bottomTrailingRadius: continuesAfter ? 0 : 1.5, topTrailingRadius: continuesBefore ? 0 : 1.5)
+                .fill(color)
+                .frame(width: 3)
+                .padding(.leading, 3)
+                .padding(.top, continuesBefore ? 0 : 3)
+                .padding(.bottom, continuesAfter ? 0 : 3)
+                .mask(FadeMask(top: continuesBefore, bottom: continuesAfter))
+                .widgetAccentable()
+        }
+        .eventBackground(shape, color: color, opacity: 0.22, inverted: inverted,
+                         fade: (continuesBefore, continuesAfter))
+        .clipShape(shape)
+        .opacity(dimmed ? 0.55 : 1)
     }
 }
 
