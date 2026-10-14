@@ -10,6 +10,8 @@ struct DayConfig {
     var hidePastCalendarIDs: Set<String> = []
     /// Календари, чьи события в монохроме рисуются инвертированно (сплошная заливка).
     var invertCalendarIDs: Set<String> = []
+    /// All-day события не показываются вовсе.
+    var hideAllDay = false
     /// Прошедшие события чуть приглушаются во всех календарях.
     var dimPastEvents = false
     /// Календари, чьи события (включая all-day) приглушены всегда.

@@ -117,6 +117,9 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
     @Parameter(title: "Day end", description: "0:00 or 24:00 means midnight", default: .h24)
     var dayEndHour: Hour
 
+    @Parameter(title: "Hide All-day Events", default: false)
+    var hideAllDay: Bool
+
     @Parameter(title: "Calendars to hide past events")
     var hidePastCalendars: [CalendarEntity]?
 
@@ -137,6 +140,7 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
             \.$split1Hour
             \.$split2Hour
             \.$dayEndHour
+            \.$hideAllDay
             \.$hidePastCalendars
             \.$dimPast
             \.$invertCalendars
@@ -151,6 +155,7 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
         c.hidePastCalendarIDs = Set((hidePastCalendars ?? []).map(\.id))
         c.invertCalendarIDs = Set((invertCalendars ?? []).map(\.id))
         c.dimCalendarIDs = Set((dimCalendars ?? []).map(\.id))
+        c.hideAllDay = hideAllDay
         c.dimPastEvents = dimPast
         return c
     }

@@ -10,9 +10,13 @@ struct DayEntry: TimelineEntry {
     let hasAccess: Bool
     var config = DayConfig()
 
-    /// События, которые видны в момент `date`: прошедшие из «скрываемых» календарей убраны.
+    /// События, которые видны в момент `date`: без all-day, если они скрыты,
+    /// и без прошедших из «скрываемых» календарей.
     var visibleEvents: [DayEvent] {
-        events.filter { !(config.hidePastCalendarIDs.contains($0.calendarID) && $0.end <= date) }
+        events.filter {
+            !(config.hideAllDay && $0.isAllDay)
+                && !(config.hidePastCalendarIDs.contains($0.calendarID) && $0.end <= date)
+        }
     }
 }
 
