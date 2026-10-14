@@ -151,14 +151,17 @@ struct AllDayList: View {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(events.prefix(3)) { ev in
                     HStack(spacing: 4) {
+                        // Иконка в квадрате 16×16 с одинаковым отступом слева и сверху/снизу —
+                        // её круг концентричен скруглению капсулы.
                         Image(systemName: "calendar.circle.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(eventTint(ev, mode))
+                            .frame(width: 16, height: 16)
                         Text(ev.title)
                             .font(.system(size: 11, weight: .semibold))
                             .lineLimit(1)
                     }
-                        .padding(.leading, 3)
+                        .padding(.leading, 2)
                         .padding(.trailing, 8)
                         .padding(.vertical, 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
