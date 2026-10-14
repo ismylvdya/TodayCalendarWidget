@@ -8,6 +8,8 @@ struct DayConfig {
     var calendarIDs: Set<String>? = nil
     /// Календари, чьи события исчезают из виджета, когда закончились.
     var hidePastCalendarIDs: Set<String> = []
+    /// Календари, чьи события в монохроме рисуются инвертированно (сплошная заливка).
+    var invertCalendarIDs: Set<String> = []
     /// Прошедшие события чуть приглушаются.
     var dimPastEvents = false
 

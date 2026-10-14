@@ -127,13 +127,14 @@ struct TodayWidgetView: View {
                 ForEach(Array(entry.config.columns.enumerated()), id: \.offset) { idx, col in
                     VStack(alignment: .leading, spacing: 4) {
                         if idx == 0 {
-                            AllDayList(events: entry.visibleEvents.filter(\.isAllDay), mode: renderingMode)
+                            AllDayList(events: entry.visibleEvents.filter(\.isAllDay), config: entry.config, mode: renderingMode)
                         }
                         ColumnView(entry: entry, startHour: col.start, endHour: col.end, mode: renderingMode)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
+            .padding(.bottom, 6)
         }
     }
 }
@@ -142,8 +143,31 @@ private func eventTint(_ ev: DayEvent, _ mode: WidgetRenderingMode) -> Color {
     mode == .fullColor ? Color(red: ev.rgb[0], green: ev.rgb[1], blue: ev.rgb[2]) : .primary
 }
 
+private func isInverted(_ ev: DayEvent, _ config: DayConfig, _ mode: WidgetRenderingMode) -> Bool {
+    mode != .fullColor && config.invertCalendarIDs.contains(ev.calendarID)
+}
+
+extension View {
+    /// Подложка события. Обычно — полупрозрачная заливка цветом календаря.
+    /// В инвертированном виде фигура залита сплошным цветом полоски, а сам контент
+    /// (текст, полоска, иконка) выбит до фона и подкрашен цветом обычной подложки.
+    @ViewBuilder
+    func eventBackground<S: Shape>(_ shape: S, color: Color, opacity: Double, inverted: Bool) -> some View {
+        if inverted {
+            self.blendMode(.destinationOut)
+                .background(shape.fill(color))
+                .compositingGroup()
+            .overlay(self.opacity(opacity))
+            .widgetAccentable()
+        } else {
+            self.background(shape.fill(color.opacity(opacity)))
+        }
+    }
+}
+
 struct AllDayList: View {
     let events: [DayEvent]
+    let config: DayConfig
     let mode: WidgetRenderingMode
 
     var body: some View {
@@ -165,7 +189,8 @@ struct AllDayList: View {
                         .padding(.trailing, 8)
                         .padding(.vertical, 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Capsule().fill(eventTint(ev, mode).opacity(0.35)))
+                        .eventBackground(Capsule(), color: eventTint(ev, mode), opacity: 0.35,
+                                         inverted: isInverted(ev, config, mode))
                         .widgetAccentable()
                 }
                 if events.count > 3 {
@@ -220,7 +245,8 @@ struct ColumnView: View {
                     let laneWidth = eventsWidth / CGFloat(p.lanes)
                     let y0 = y(p.start)
                     let h = max(y(p.end) - y0 - 1, 13)
-                    EventBlock(event: p.event, height: h, isPast: entry.config.dimPastEvents && p.event.end <= entry.date, mode: mode)
+                    EventBlock(event: p.event, height: h, isPast: entry.config.dimPastEvents && p.event.end <= entry.date,
+                               inverted: isInverted(p.event, entry.config, mode), mode: mode)
                         .frame(width: laneWidth - 2, height: h)
                         .offset(x: gutter + CGFloat(p.lane) * laneWidth, y: y0 + 0.5)
                 }
@@ -247,6 +273,7 @@ struct EventBlock: View {
     let event: DayEvent
     let height: CGFloat
     let isPast: Bool
+    let inverted: Bool
     let mode: WidgetRenderingMode
 
     private static let timeFormat: DateFormatter = {
@@ -277,7 +304,7 @@ struct EventBlock: View {
         }
         .padding(3)
         .frame(maxHeight: .infinity, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.22)))
+        .eventBackground(RoundedRectangle(cornerRadius: 5), color: color, opacity: 0.22, inverted: inverted)
         .clipShape(RoundedRectangle(cornerRadius: 5))
         .opacity(isPast ? 0.55 : 1)
     }

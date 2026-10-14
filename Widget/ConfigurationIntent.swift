@@ -45,6 +45,9 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
     @Parameter(title: "Hide past events in calendars")
     var hidePastCalendars: [CalendarEntity]?
 
+    @Parameter(title: "Invert event colors in calendars", description: "Applies in monochrome mode only")
+    var invertCalendars: [CalendarEntity]?
+
     @Parameter(title: "Dim past events", default: false)
     var dimPast: Bool
 
@@ -64,6 +67,7 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
         Summary {
             \.$calendars
             \.$hidePastCalendars
+            \.$invertCalendars
             \.$dimPast
             \.$dayStart
             \.$split1
@@ -77,6 +81,7 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
         c.columns = DayConfig.columns([dayStart, split1, split2, dayEnd])
         if let calendars, !calendars.isEmpty { c.calendarIDs = Set(calendars.map(\.id)) }
         c.hidePastCalendarIDs = Set((hidePastCalendars ?? []).map(\.id))
+        c.invertCalendarIDs = Set((invertCalendars ?? []).map(\.id))
         c.dimPastEvents = dimPast
         return c
     }
