@@ -1,0 +1,56 @@
+name: TodayCalendarWidget
+options:
+  deploymentTarget:
+    macOS: "14.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: NO
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  TodayCalendarWidget:
+    type: application
+    platform: macOS
+    sources: [App, Shared]
+    dependencies:
+      - target: TodayCalendarWidgetExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chumbulev.TodayCalendarWidget
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: TodayCalendarWidget
+        LSUIElement: true
+        NSCalendarsFullAccessUsageDescription: Виджет показывает события сегодняшнего дня.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.chumbulev.TodayCalendarWidget
+            CFBundleURLSchemes: [todaycalendarwidget]
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.personal-information.calendars: true
+  TodayCalendarWidgetExtension:
+    type: app-extension
+    platform: macOS
+    sources: [Widget, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chumbulev.TodayCalendarWidget.Widget
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: TodayCalendarWidget
+        NSCalendarsFullAccessUsageDescription: Виджет показывает события сегодняшнего дня.
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widget/Widget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.personal-information.calendars: true
