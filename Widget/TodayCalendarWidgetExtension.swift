@@ -107,11 +107,18 @@ struct TodayWidgetView: View {
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
+        // Полноцветный режим — светлая тема как у системного Calendar; в монохроме цвета задаёт система.
+        content.environment(\.colorScheme, renderingMode == .fullColor ? .light : colorScheme)
+    }
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    @ViewBuilder private var content: some View {
         if !entry.hasAccess {
             VStack(spacing: 6) {
                 Image(systemName: "calendar.badge.exclamationmark").font(.title)
-                Text("Нет доступа к календарю").font(.headline)
-                Text("Откройте приложение TodayCalendarWidget и разрешите доступ.")
+                Text("No calendar access").font(.headline)
+                Text("Open TodayCalendarWidget and allow full calendar access.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -143,11 +150,17 @@ struct AllDayList: View {
         if !events.isEmpty {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(events.prefix(3)) { ev in
-                    Text(ev.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(1)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(eventTint(ev, mode))
+                        Text(ev.title)
+                            .font(.system(size: 11, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                        .padding(.leading, 3)
+                        .padding(.trailing, 8)
+                        .padding(.vertical, 2)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Capsule().fill(eventTint(ev, mode).opacity(0.35)))
                         .widgetAccentable()
@@ -156,7 +169,7 @@ struct AllDayList: View {
                     Text("+\(events.count - 3)").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
                 }
             }
-            .padding(.bottom, 4)
+            .padding(.bottom, 12)
         }
     }
 }
@@ -169,6 +182,9 @@ struct ColumnView: View {
 
     private let gutter: CGFloat = 20
     private let labelHeight: CGFloat = 12
+    /// Центр кружка курсора относительно левого края колонки (левее цифр часов).
+    private let cursorX: CGFloat = -5
+    private let cursorDot: CGFloat = 9
 
     var body: some View {
         GeometryReader { geo in
@@ -209,13 +225,14 @@ struct ColumnView: View {
                 // Курсор текущего момента
                 if entry.date >= from && entry.date < to {
                     let yy = y(entry.date)
+                    // Кружок — посередине между краем соседней колонки и цифрами часов.
                     HStack(spacing: 0) {
-                        Circle().frame(width: 6, height: 6)
-                        Rectangle().frame(height: 1.2)
+                        Circle().frame(width: cursorDot, height: cursorDot)
+                        Rectangle().frame(height: 2.4)
                     }
-                    .foregroundStyle(.red)
-                    .frame(width: eventsWidth + 3)
-                    .offset(x: gutter - 3, y: yy - 3)
+                    .foregroundStyle(Theme.cursor)
+                    .frame(width: geo.size.width - cursorX + cursorDot / 2)
+                    .offset(x: cursorX - cursorDot / 2, y: yy - cursorDot / 2)
                     .widgetAccentable()
                 }
             }
@@ -263,6 +280,11 @@ struct EventBlock: View {
     }
 }
 
+enum Theme {
+    static let background = Color.white
+    static let cursor = Color(red: 0xF1 / 255, green: 0x65 / 255, blue: 0x4E / 255)
+}
+
 // MARK: - Widget
 
 @main
@@ -271,14 +293,11 @@ struct TodayCalendarWidget: Widget {
         AppIntentConfiguration(kind: "TodayCalendarWidget", intent: DayConfigurationIntent.self, provider: Provider()) { entry in
             TodayWidgetView(entry: entry)
                 .widgetURL(URL(string: "todaycalendarwidget://open"))
-                .containerBackground(for: .widget) {
-                    LinearGradient(colors: [Color(red: 0.13, green: 0.2, blue: 0.55), Color(red: 0.2, green: 0.3, blue: 0.65)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
-                }
+                .containerBackground(Theme.background, for: .widget)
         }
-        .configurationDisplayName("Сегодня")
-        .description("Таймлайн сегодняшнего дня в три колонки. Настройки — «Изменить виджет».")
-        .supportedFamilies([.systemExtraLarge, .systemLarge])
+        .configurationDisplayName("Triple Today")
+        .description("")
+        .supportedFamilies([.systemExtraLarge])
     }
 }
 
@@ -293,12 +312,12 @@ enum SampleData {
                             isAllDay: allDay, calendarID: "sample", rgb: [0.45, 0.6, 1.0])
         }
         return [
-            ev("оплатить всё", 0, 24, allDay: true),
-            ev("зарядка", 7.5, 0.5),
-            ev("созвон", 10, 1),
-            ev("кулешов", 12, 3),
-            ev("мама позвонить", 18, 0.5),
-            ev("рынок?", 19, 1),
+            ev("pay bills", 0, 24, allDay: true),
+            ev("workout", 7.5, 0.5),
+            ev("call", 10, 1),
+            ev("meeting", 12, 3),
+            ev("call mom", 18, 0.5),
+            ev("market?", 19, 1),
         ]
     }
 }

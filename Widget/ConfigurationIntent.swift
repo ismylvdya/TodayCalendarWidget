@@ -5,7 +5,7 @@ import WidgetKit
 // MARK: - Календарь как параметр настроек
 
 struct CalendarEntity: AppEntity {
-    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Календарь"
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Calendar"
     static var defaultQuery = CalendarQuery()
 
     let id: String
@@ -36,28 +36,28 @@ struct CalendarQuery: EntityQuery {
 // MARK: - Настройки виджета
 
 struct DayConfigurationIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "Настройки дня"
-    static var description = IntentDescription("Календари и границы таймлайна.")
+    static var title: LocalizedStringResource = "Triple Today"
+    static var description = IntentDescription("Calendars and timeline bounds.")
 
-    @Parameter(title: "Календари (пусто — все)")
+    @Parameter(title: "Calendars to show", description: "Empty means all calendars")
     var calendars: [CalendarEntity]?
 
-    @Parameter(title: "Убирать прошедшие из календарей")
+    @Parameter(title: "Hide past events in calendars")
     var hidePastCalendars: [CalendarEntity]?
 
-    @Parameter(title: "Приглушать прошедшие", default: false)
+    @Parameter(title: "Dim past events", default: false)
     var dimPast: Bool
 
-    @Parameter(title: "Начало дня", default: 6, inclusiveRange: (0, 23))
+    @Parameter(title: "Day start", default: 6, inclusiveRange: (0, 24))
     var dayStart: Int
 
-    @Parameter(title: "Конец 1-й колонки", default: 12, inclusiveRange: (1, 23))
+    @Parameter(title: "Column 1 end", default: 12, inclusiveRange: (0, 24))
     var split1: Int
 
-    @Parameter(title: "Конец 2-й колонки", default: 18, inclusiveRange: (1, 23))
+    @Parameter(title: "Column 2 end", default: 18, inclusiveRange: (0, 24))
     var split2: Int
 
-    @Parameter(title: "Конец дня (24 = полночь)", default: 24, inclusiveRange: (1, 24))
+    @Parameter(title: "Day end", description: "0 or 24 means midnight", default: 24, inclusiveRange: (0, 24))
     var dayEnd: Int
 
     static var parameterSummary: some ParameterSummary {

@@ -11,9 +11,12 @@ struct DayConfig {
     /// Прошедшие события чуть приглушаются.
     var dimPastEvents = false
 
-    /// Границы четырьмя числами; если они не по возрастанию, остаются значения по умолчанию.
-    static func columns(_ b: [Int]) -> [(start: Int, end: Int)] {
-        guard b.count == 4, b[0] >= 0, b[3] <= 24, zip(b, b.dropFirst()).allSatisfy({ $0 < $1 }) else {
+    /// Границы четырьмя числами в 0...24, 0 в конце = полночь (24).
+    /// Если они не строго по возрастанию, остаются значения по умолчанию.
+    static func columns(_ bounds: [Int]) -> [(start: Int, end: Int)] {
+        var b = bounds
+        if b.last == 0 { b[b.count - 1] = 24 }
+        guard b.count == 4, b.allSatisfy({ (0...24).contains($0) }), zip(b, b.dropFirst()).allSatisfy({ $0 < $1 }) else {
             return DayConfig().columns
         }
         return [(b[0], b[1]), (b[1], b[2]), (b[2], b[3])]
