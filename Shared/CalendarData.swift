@@ -1,11 +1,23 @@
 import EventKit
 import Foundation
 
-/// Границы дня и деление на три колонки (часы, 24 = полночь).
-enum DayConfig {
-    static let columns: [(start: Int, end: Int)] = [(6, 12), (12, 18), (18, 24)]
-    /// Прошедшие события чуть приглушаются (false — рисовать как остальные).
-    static let dimPastEvents = true
+/// Настройки отображения дня (часы, 24 = полночь). Значения по умолчанию — 6–12–18–24.
+struct DayConfig {
+    var columns: [(start: Int, end: Int)] = [(6, 12), (12, 18), (18, 24)]
+    /// nil — все календари.
+    var calendarIDs: Set<String>? = nil
+    /// Календари, чьи события исчезают из виджета, когда закончились.
+    var hidePastCalendarIDs: Set<String> = []
+    /// Прошедшие события чуть приглушаются.
+    var dimPastEvents = false
+
+    /// Границы четырьмя числами; если они не по возрастанию, остаются значения по умолчанию.
+    static func columns(_ b: [Int]) -> [(start: Int, end: Int)] {
+        guard b.count == 4, b[0] >= 0, b[3] <= 24, zip(b, b.dropFirst()).allSatisfy({ $0 < $1 }) else {
+            return DayConfig().columns
+        }
+        return [(b[0], b[1]), (b[1], b[2]), (b[2], b[3])]
+    }
 }
 
 struct DayEvent: Identifiable, Hashable {
@@ -14,6 +26,7 @@ struct DayEvent: Identifiable, Hashable {
     let start: Date
     let end: Date
     let isAllDay: Bool
+    let calendarID: String
     /// sRGB-компоненты цвета календаря.
     let rgb: [Double]
 }
@@ -23,11 +36,13 @@ enum CalendarData {
         EKEventStore.authorizationStatus(for: .event) == .fullAccess
     }
 
-    static func todayEvents(store: EKEventStore, now: Date = Date()) -> [DayEvent] {
+    static func todayEvents(store: EKEventStore, now: Date = Date(), calendarIDs: Set<String>? = nil) -> [DayEvent] {
         let cal = Calendar.current
         let dayStart = cal.startOfDay(for: now)
         let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)!
-        let predicate = store.predicateForEvents(withStart: dayStart, end: dayEnd, calendars: nil)
+        let calendars = calendarIDs.map { ids in store.calendars(for: .event).filter { ids.contains($0.calendarIdentifier) } }
+        if let calendars, calendars.isEmpty { return [] }
+        let predicate = store.predicateForEvents(withStart: dayStart, end: dayEnd, calendars: calendars)
         return store.events(matching: predicate)
             .filter { $0.status != .canceled }
             .map { ev in
@@ -37,6 +52,7 @@ enum CalendarData {
                     start: ev.startDate,
                     end: ev.endDate,
                     isAllDay: ev.isAllDay,
+                    calendarID: ev.calendar.calendarIdentifier,
                     rgb: rgb(of: ev.calendar.cgColor)
                 )
             }

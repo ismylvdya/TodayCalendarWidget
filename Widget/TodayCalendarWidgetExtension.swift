@@ -8,39 +8,47 @@ struct DayEntry: TimelineEntry {
     let date: Date
     let events: [DayEvent]
     let hasAccess: Bool
+    var config = DayConfig()
+
+    /// События, которые видны в момент `date`: прошедшие из «скрываемых» календарей убраны.
+    var visibleEvents: [DayEvent] {
+        events.filter { !(config.hidePastCalendarIDs.contains($0.calendarID) && $0.end <= date) }
+    }
 }
 
-struct Provider: TimelineProvider {
+struct Provider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> DayEntry {
         DayEntry(date: Date(), events: SampleData.events, hasAccess: true)
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (DayEntry) -> Void) {
+    func snapshot(for configuration: DayConfigurationIntent, in context: Context) async -> DayEntry {
         let now = Date()
+        let config = configuration.dayConfig
         if CalendarData.hasAccess {
-            completion(DayEntry(date: now, events: CalendarData.todayEvents(store: EKEventStore(), now: now), hasAccess: true))
-        } else {
-            completion(DayEntry(date: now, events: SampleData.events, hasAccess: context.isPreview))
+            let events = CalendarData.todayEvents(store: EKEventStore(), now: now, calendarIDs: config.calendarIDs)
+            return DayEntry(date: now, events: events, hasAccess: true, config: config)
         }
+        return DayEntry(date: now, events: SampleData.events, hasAccess: context.isPreview, config: config)
     }
 
     /// Кадры на каждую минуту в течение часа — двигается только курсор.
-    func getTimeline(in context: Context, completion: @escaping (Timeline<DayEntry>) -> Void) {
+    func timeline(for configuration: DayConfigurationIntent, in context: Context) async -> Timeline<DayEntry> {
         let now = Date()
         let cal = Calendar.current
+        let config = configuration.dayConfig
         let hasAccess = CalendarData.hasAccess
-        let events = hasAccess ? CalendarData.todayEvents(store: EKEventStore(), now: now) : []
+        let events = hasAccess ? CalendarData.todayEvents(store: EKEventStore(), now: now, calendarIDs: config.calendarIDs) : []
         let minuteStart = cal.dateInterval(of: .minute, for: now)?.start ?? now
         let nextDay = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: now))!
 
-        var entries = [DayEntry(date: now, events: events, hasAccess: hasAccess)]
+        var entries = [DayEntry(date: now, events: events, hasAccess: hasAccess, config: config)]
         for i in 1...60 {
             let d = minuteStart.addingTimeInterval(Double(i) * 60)
             if d >= nextDay { break }
-            entries.append(DayEntry(date: d, events: events, hasAccess: hasAccess))
+            entries.append(DayEntry(date: d, events: events, hasAccess: hasAccess, config: config))
         }
         let reloadAt = min(entries.last!.date.addingTimeInterval(60), nextDay)
-        completion(Timeline(entries: entries, policy: .after(reloadAt)))
+        return Timeline(entries: entries, policy: .after(reloadAt))
     }
 }
 
@@ -109,10 +117,10 @@ struct TodayWidgetView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             HStack(alignment: .top, spacing: 14) {
-                ForEach(Array(DayConfig.columns.enumerated()), id: \.offset) { idx, col in
+                ForEach(Array(entry.config.columns.enumerated()), id: \.offset) { idx, col in
                     VStack(alignment: .leading, spacing: 4) {
                         if idx == 0 {
-                            AllDayList(events: entry.events.filter(\.isAllDay), mode: renderingMode)
+                            AllDayList(events: entry.visibleEvents.filter(\.isAllDay), mode: renderingMode)
                         }
                         ColumnView(entry: entry, startHour: col.start, endHour: col.end, mode: renderingMode)
                     }
@@ -189,11 +197,11 @@ struct ColumnView: View {
                 }
 
                 // События
-                ForEach(Layout.place(entry.events, from: from, to: to)) { p in
+                ForEach(Layout.place(entry.visibleEvents, from: from, to: to)) { p in
                     let laneWidth = eventsWidth / CGFloat(p.lanes)
                     let y0 = y(p.start)
                     let h = max(y(p.end) - y0 - 1, 13)
-                    EventBlock(event: p.event, height: h, isPast: p.event.end <= entry.date, mode: mode)
+                    EventBlock(event: p.event, height: h, isPast: entry.config.dimPastEvents && p.event.end <= entry.date, mode: mode)
                         .frame(width: laneWidth - 2, height: h)
                         .offset(x: gutter + CGFloat(p.lane) * laneWidth, y: y0 + 0.5)
                 }
@@ -251,7 +259,7 @@ struct EventBlock: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .background(RoundedRectangle(cornerRadius: 5).fill(color.opacity(0.22)))
         .clipShape(RoundedRectangle(cornerRadius: 5))
-        .opacity(isPast && DayConfig.dimPastEvents ? 0.55 : 1)
+        .opacity(isPast ? 0.55 : 1)
     }
 }
 
@@ -260,7 +268,7 @@ struct EventBlock: View {
 @main
 struct TodayCalendarWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "TodayCalendarWidget", provider: Provider()) { entry in
+        AppIntentConfiguration(kind: "TodayCalendarWidget", intent: DayConfigurationIntent.self, provider: Provider()) { entry in
             TodayWidgetView(entry: entry)
                 .widgetURL(URL(string: "todaycalendarwidget://open"))
                 .containerBackground(for: .widget) {
@@ -269,7 +277,7 @@ struct TodayCalendarWidget: Widget {
                 }
         }
         .configurationDisplayName("Сегодня")
-        .description("Таймлайн сегодняшнего дня 6:00–0:00 в три колонки.")
+        .description("Таймлайн сегодняшнего дня в три колонки. Настройки — «Изменить виджет».")
         .supportedFamilies([.systemExtraLarge, .systemLarge])
     }
 }
@@ -282,7 +290,7 @@ enum SampleData {
         func ev(_ title: String, _ h: Double, _ dur: Double, allDay: Bool = false) -> DayEvent {
             let s = Calendar.current.startOfDay(for: d).addingTimeInterval(h * 3600)
             return DayEvent(id: title, title: title, start: s, end: s.addingTimeInterval(dur * 3600),
-                            isAllDay: allDay, rgb: [0.45, 0.6, 1.0])
+                            isAllDay: allDay, calendarID: "sample", rgb: [0.45, 0.6, 1.0])
         }
         return [
             ev("оплатить всё", 0, 24, allDay: true),
