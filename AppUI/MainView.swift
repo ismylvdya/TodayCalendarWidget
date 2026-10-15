@@ -449,18 +449,18 @@ struct HabitDetailView: View {
             InputRow(title: "Name", placeholder: habit.links.last?.titles.last ?? "Habit",
                      text: Binding(get: { habit.name }, set: { var h = habit; h.name = $0; store.update(h) }))
             Divider()
+            ReminderTimesField(times: habit.reminderTimes) { var h = habit; h.reminderTimes = $0; store.update(h); store.syncNotifications() }
+            Divider()
             ColorPicker("Color", selection: Binding(get: { habit.color }, set: { var h = habit; h.colorHex = $0.hexString; store.update(h) }),
                         supportsOpacity: false)
             Divider()
-            SelectRow(title: "Type", options: [(false, "Good"), (true, "Bad")],
+            SelectRow(title: "Habit Type", options: [(false, "Good"), (true, "Bad")],
                       selection: Binding(get: { habit.harmful }, set: { var h = habit; h.harmful = $0; store.update(h) }))
-            Divider()
-            Toggle("Show Note", isOn: Binding(get: { habit.showsNote }, set: { var h = habit; h.showsNote = $0; store.update(h) }))
             Divider()
             Stepper(habit.weeklyGoal == 0 ? "Weekly goal: off" : "Weekly goal: \(habit.weeklyGoal) times",
                     value: Binding(get: { habit.weeklyGoal }, set: { var h = habit; h.weeklyGoal = $0; store.update(h) }), in: 0...7)
             Divider()
-            ReminderTimesField(times: habit.reminderTimes) { var h = habit; h.reminderTimes = $0; store.update(h); store.syncNotifications() }
+            Toggle("Show Note", isOn: Binding(get: { habit.showsNote }, set: { var h = habit; h.showsNote = $0; store.update(h) }))
             Divider()
             OwnColorField(title: "Partially Done Icon", hex: habit.partialIconHex) { var h = habit; h.partialIconHex = $0; store.update(h) }
             Divider()
