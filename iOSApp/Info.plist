@@ -2,10 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>ALTAppGroups</key>
+	<array>
+		<string>group.com.chumbulev.TripleToday</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>TodayCalendarWidget</string>
+	<string>Cal Enh &amp; Hab</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -18,10 +22,23 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.chumbulev.TripleToday</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>todaycalendarwidget</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>The widget shows today's calendar events.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Completed reminders are added to your habit history.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

@@ -12,7 +12,6 @@ enum AlertScheduler {
     private static let idPrefix = "alert|"
     /// iOS держит не больше 64 запланированных уведомлений на приложение; оставляем запас.
     private static let limit = 60
-    private static let horizonDays = 7
 
     /// Категория с кнопкой «Delete event» в контекстном меню уведомления.
     static func registerCategory() {
@@ -33,9 +32,10 @@ enum AlertScheduler {
         guard await center.notificationSettings().authorizationStatus == .authorized else { return }
         registerCategory()
 
-        let requests = upcomingAlerts(now: now).prefix(limit).map(\.request)
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(idPrefix) }
         center.removePendingNotificationRequests(withIdentifiers: pending)
+        guard CalendarSettings.alertsEnabled else { return }
+        let requests = upcomingAlerts(now: now).prefix(limit).map(\.request)
         for request in requests { try? await center.add(request) }
         await removeDeliveredForMovedEvents()
     }
@@ -50,9 +50,12 @@ enum AlertScheduler {
         try? await UNUserNotificationCenter.current().add(request)
     }
 
-    /// Убирает показанные уведомления, чьё событие перенесли на более позднее время.
-    /// Событие на прежнем месте или перенесённое раньше — уведомление остаётся.
+    /// Убирает показанные уведомления, чьё событие перенесли на более позднее время
+    /// (и удалённые события, если так настроено). Событие на месте или перенесённое
+    /// раньше — уведомление остаётся.
     private static func removeDeliveredForMovedEvents() async {
+        let movedLater = CalendarSettings.removeWhenMovedLater, deleted = CalendarSettings.removeWhenDeleted
+        guard movedLater || deleted else { return }
         let center = UNUserNotificationCenter.current()
         let store = EKEventStore()
         var stale: [String] = []
@@ -67,7 +70,11 @@ enum AlertScheduler {
             let occurrences = store.events(matching: window).filter { $0.eventIdentifier == id }
             if occurrences.contains(where: { $0.startDate == start }) { continue }
             let nearest = occurrences.min { abs($0.startDate.timeIntervalSince(start)) < abs($1.startDate.timeIntervalSince(start)) }
-            if let nearest, nearest.startDate > start { stale.append(note.request.identifier) }
+            if let nearest {
+                if movedLater && nearest.startDate > start { stale.append(note.request.identifier) }
+            } else if deleted {
+                stale.append(note.request.identifier)
+            }
         }
         if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
     }
@@ -79,7 +86,7 @@ enum AlertScheduler {
 
     private static func upcomingAlerts(now: Date) -> [Alert] {
         let store = EKEventStore()
-        let end = Calendar.current.date(byAdding: .day, value: horizonDays, to: now)!
+        let end = Calendar.current.date(byAdding: .day, value: CalendarSettings.alertDaysAhead, to: now)!
         // Захватываем и начавшиеся раньше события: их alert мог быть задан после начала.
         let start = Calendar.current.date(byAdding: .day, value: -1, to: now)!
         let events = store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))

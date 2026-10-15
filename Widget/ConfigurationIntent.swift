@@ -73,7 +73,9 @@ enum ColorDot {
 // MARK: - Час как параметр настроек
 
 /// Час, который в панели настроек показывается как «6:00» вместо голого числа.
+/// «Default» — интервал из настроек приложения.
 enum Hour: Int, AppEnum {
+    case appDefault = -1
     case h0 = 0
     case h1 = 1
     case h2 = 2
@@ -102,6 +104,7 @@ enum Hour: Int, AppEnum {
 
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Hour"
     static var caseDisplayRepresentations: [Hour: DisplayRepresentation] = [
+        .appDefault: "Default",
         .h0: "0:00",
         .h1: "1:00",
         .h2: "2:00",
@@ -142,10 +145,10 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
     var calendars: [CalendarEntity]?
 
     // Timeline
-    @Parameter(title: "Day start", default: .h6)
+    @Parameter(title: "Day start", description: "Default is set in the app's Calendar Settings", default: .appDefault)
     var dayStartHour: Hour
 
-    @Parameter(title: "Day end", description: "Earlier than Day start means the next day", default: .h24)
+    @Parameter(title: "Day end", description: "Earlier than Day start means the next day", default: .appDefault)
     var dayEndHour: Hour
 
     @Parameter(title: "Hide All-day Events", default: false)
@@ -179,8 +182,8 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
 
     var dayConfig: DayConfig {
         var c = DayConfig()
-        c.dayStart = dayStartHour.rawValue
-        c.dayEnd = dayEndHour.rawValue
+        c.dayStart = dayStartHour == .appDefault ? CalendarSettings.defaultDayStart : dayStartHour.rawValue
+        c.dayEnd = dayEndHour == .appDefault ? CalendarSettings.defaultDayEnd : dayEndHour.rawValue
         if let calendars, !calendars.isEmpty { c.calendarIDs = Set(calendars.map(\.id)) }
         c.hidePastCalendarIDs = Set((hidePastCalendars ?? []).map(\.id))
         c.invertCalendarIDs = Set((invertCalendars ?? []).map(\.id))

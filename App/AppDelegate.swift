@@ -31,7 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.messageText = "Нет доступа к календарю"
-            alert.informativeText = "Разрешите TodayCalendarWidget полный доступ к календарям в Системных настройках → Конфиденциальность и безопасность → Календари, затем перезапустите приложение."
+            alert.informativeText = "Разрешите Calendar Widget полный доступ к календарям в Системных настройках → Конфиденциальность и безопасность → Календари, затем перезапустите приложение."
             alert.runModal()
             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
             return

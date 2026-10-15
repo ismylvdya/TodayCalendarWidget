@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Собирает неподписанный TripleToday.ipa для установки через AltStore / SideStore
+# Собирает CalendarRemindersEnhancer.ipa для установки через AltStore / SideStore
 # (они сами переподписывают приложение Apple ID пользователя).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,5 +13,12 @@ xcodebuild -project TodayCalendarWidget.xcodeproj -scheme TripleTodayiOS \
 
 rm -rf build/ipa && mkdir -p build/ipa/Payload
 cp -R build/DDios/Build/Products/Release-iphoneos/TripleToday.app build/ipa/Payload/
-(cd build/ipa && zip -qry ../TripleToday.ipa Payload)
-echo "build/TripleToday.ipa"
+
+# Ad-hoc подпись ради entitlements: AltStore/SideStore берут их из подписи при переподписывании
+# (App Group — общая база привычек и настроек у приложения и виджета).
+APP=build/ipa/Payload/TripleToday.app
+codesign --force --sign - --entitlements iOSWidget/Widget.entitlements "$APP/PlugIns/TripleTodayWidget.appex"
+codesign --force --sign - --entitlements iOSApp/App.entitlements "$APP"
+rm -f build/*.ipa
+(cd build/ipa && zip -qry ../CalendarRemindersEnhancer.ipa Payload)
+echo "build/CalendarRemindersEnhancer.ipa"

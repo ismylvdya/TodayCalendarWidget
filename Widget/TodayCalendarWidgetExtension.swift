@@ -154,7 +154,8 @@ struct DayView: View {
 
     /// Подпись о синхронизации появляется, только если данные устарели на 30 минут и больше.
     private var staleSince: Date? {
-        guard let fetchedAt = entry.fetchedAt, entry.date.timeIntervalSince(fetchedAt) >= 30 * 60 else { return nil }
+        guard let fetchedAt = entry.fetchedAt,
+              entry.date.timeIntervalSince(fetchedAt) >= Double(CalendarSettings.staleLabelMinutes) * 60 else { return nil }
         return fetchedAt
     }
 
@@ -163,7 +164,7 @@ struct DayView: View {
             VStack(spacing: 6) {
                 Image(systemName: "calendar.badge.exclamationmark").font(.title)
                 Text("No calendar access").font(.headline)
-                Text("Open TodayCalendarWidget and allow full calendar access.")
+                Text(appName + " needs full calendar access. Open it and allow access.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -198,6 +199,15 @@ struct DayView: View {
 
 private func eventTint(_ ev: DayEvent, _ mode: WidgetRenderingMode) -> Color {
     mode == .fullColor ? Color(red: ev.rgb[0], green: ev.rgb[1], blue: ev.rgb[2]) : .primary
+}
+
+/// Цвет текста события: на iPhone в полноцветной тёмной теме — цвет календаря (как полоска),
+/// в остальных случаях — обычный.
+private func eventTextStyle(_ color: Color, _ mode: WidgetRenderingMode, _ scheme: ColorScheme) -> AnyShapeStyle {
+    #if os(iOS)
+    if mode == .fullColor && scheme == .dark { return AnyShapeStyle(color) }
+    #endif
+    return AnyShapeStyle(.primary)
 }
 
 private func isInverted(_ ev: DayEvent, _ config: DayConfig, _ mode: WidgetRenderingMode) -> Bool {
@@ -248,6 +258,7 @@ struct AllDayList: View {
     let events: [DayEvent]
     let config: DayConfig
     let mode: WidgetRenderingMode
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         if !events.isEmpty {
@@ -262,6 +273,7 @@ struct AllDayList: View {
                             .frame(width: 16, height: 16)
                         Text(ev.title)
                             .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(eventTextStyle(eventTint(ev, mode), mode, scheme))
                             .lineLimit(1)
                     }
                         .padding(.leading, 2)
@@ -361,7 +373,7 @@ struct ColumnView: View {
                         Circle().frame(width: cursorDot, height: cursorDot)
                     }
                     // В монохроме яркость = светлота цвета, поэтому курсор чисто белый — ярче всего остального.
-                    .foregroundStyle(mode == .fullColor ? Theme.cursor : .white)
+                    .foregroundStyle(mode == .fullColor ? CalendarSettings.cursorColor : .white)
                     // Правый конец доходит до середины промежутка до следующей колонки.
                     .frame(width: geo.size.width + Layout.columnSpacing / 2 - cursorX + cursorDot / 2)
                     .offset(x: cursorX - cursorDot / 2, y: yy - cursorDot / 2)
@@ -401,6 +413,7 @@ struct EventBlock: View {
     let continuesBefore: Bool
     let continuesAfter: Bool
     let mode: WidgetRenderingMode
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let color = eventTint(event, mode)
@@ -412,6 +425,7 @@ struct EventBlock: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text(event.title)
                     .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(eventTextStyle(color, mode, scheme))
                     .lineLimit(height > 30 ? 2 : 1)
                 // На месте прежнего времени начала — колокольчик, если у события есть alert.
                 if event.hasAlarm && height > 34 {
@@ -475,6 +489,9 @@ struct TodayWidgets: WidgetBundle {
         DoubleTodayWidget()
         #if os(macOS)
         TripleTodayWidget()
+        #else
+        HabitWidget()
+        HabitGoalWidget()
         #endif
     }
 }

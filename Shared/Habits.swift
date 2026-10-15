@@ -1,0 +1,268 @@
+import Foundation
+import SwiftUI
+
+// MARK: - Модель
+
+/// Состояние дня в истории привычки.
+enum HabitDayState: String, CaseIterable, Identifiable {
+    case none, partial, done, over
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .none: "Not Done"
+        case .partial: "Partially Done"
+        case .done: "Done"
+        case .over: "Overdone"
+        }
+    }
+}
+
+/// Привычка — со своим постоянным ID. Напоминания из Reminders к ней только привязываются:
+/// старое удалили, новое привязали — история продолжается под тем же ID.
+struct Habit: Codable, Identifiable, Hashable {
+    var id = UUID()
+    /// Своё название; пусто — берётся название привязанного напоминания.
+    var name: String
+    var colorHex = "#3478F6FF"
+    /// Привязанные напоминания (текущее и прежние). Пусто — привычка отмечается только вручную.
+    var links: [ReminderLink] = []
+    /// Дни выполнения, «yyyy-MM-dd» (включая недоделанные и перевыполненные).
+    var completions: Set<String> = []
+    /// Из выполненных — недоделанные и перевыполненные.
+    var partialDays: Set<String> = []
+    var overDays: Set<String> = []
+    /// Дни, снятые вручную: синхронизация с Reminders их больше не добавляет.
+    var removedDays: Set<String> = []
+    /// Цвета иконок недоделанного и перевыполненного дня; nil — по умолчанию
+    /// (недоделано — цвет выполненного дня, перевыполнено — цвет невыполненного).
+    var partialIconHex: String?
+    var overIconHex: String?
+    /// Цель: сколько раз в неделю (0 — без цели).
+    var weeklyGoal = 0
+    /// Заметки к дням.
+    var notes: [String: String] = [:]
+    /// В архиве: нет в списке и виджетах, история сохраняется.
+    var archived = false
+    var createdAt = Date()
+
+    init(name: String, colorHex: String = "#3478F6FF") {
+        self.name = name
+        self.colorHex = colorHex
+    }
+
+    var color: Color { Color(hex: colorHex) ?? .blue }
+
+    /// Название для показа.
+    var title: String {
+        let custom = name.trimmingCharacters(in: .whitespaces)
+        return custom.isEmpty ? (links.last?.titles.last ?? "Habit") : custom
+    }
+
+    func isDone(_ day: Date) -> Bool { completions.contains(HabitDay.key(day)) }
+
+    func note(_ day: Date) -> String? { notes[HabitDay.key(day)] }
+
+    mutating func setNote(_ text: String, day: Date) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        notes[HabitDay.key(day)] = trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Сколько дней отмечено на неделе, в которую входит `day`.
+    func doneInWeek(of day: Date) -> Int {
+        HabitGrid.weeks(count: 1, endingAt: day).first?.compactMap { $0 }.filter(isDone).count ?? 0
+    }
+
+    func state(_ day: Date) -> HabitDayState {
+        let key = HabitDay.key(day)
+        guard completions.contains(key) else { return .none }
+        if overDays.contains(key) { return .over }
+        if partialDays.contains(key) { return .partial }
+        return .done
+    }
+
+    /// Отметить или снять день вручную.
+    mutating func set(_ day: Date, done: Bool) {
+        setState(done ? .done : .none, day: day)
+    }
+
+    mutating func setState(_ state: HabitDayState, day: Date) {
+        let key = HabitDay.key(day)
+        partialDays.remove(key)
+        overDays.remove(key)
+        if state == .none {
+            completions.remove(key)
+            removedDays.insert(key)
+            return
+        }
+        completions.insert(key)
+        removedDays.remove(key)
+        if state == .partial { partialDays.insert(key) }
+        if state == .over { overDays.insert(key) }
+    }
+
+    // Старые файлы базы без новых полей тоже читаются.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        colorHex = try c.decodeIfPresent(String.self, forKey: .colorHex) ?? "#3478F6FF"
+        links = try c.decodeIfPresent([ReminderLink].self, forKey: .links) ?? []
+        completions = try c.decodeIfPresent(Set<String>.self, forKey: .completions) ?? []
+        partialDays = try c.decodeIfPresent(Set<String>.self, forKey: .partialDays) ?? []
+        overDays = try c.decodeIfPresent(Set<String>.self, forKey: .overDays) ?? []
+        removedDays = try c.decodeIfPresent(Set<String>.self, forKey: .removedDays) ?? []
+        partialIconHex = try c.decodeIfPresent(String.self, forKey: .partialIconHex)
+        overIconHex = try c.decodeIfPresent(String.self, forKey: .overIconHex)
+        weeklyGoal = try c.decodeIfPresent(Int.self, forKey: .weeklyGoal) ?? 0
+        notes = try c.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
+        archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
+}
+
+/// Привязка к напоминанию. Названия запоминаются все, какие были: выполненные копии
+/// повторяющегося напоминания узнаются по названию в том же списке.
+struct ReminderLink: Codable, Hashable {
+    var reminderID: String
+    var listID: String
+    var titles: [String]
+}
+
+struct HabitDB: Codable {
+    var habits: [Habit] = []
+    var lastReminderSync: Date?
+}
+
+enum HabitDay {
+    /// «Сегодня» для привычек: до часа отсечки ночью ещё идёт вчерашний день.
+    static func today(_ now: Date = Date()) -> Date {
+        Calendar.current.startOfDay(for: now.addingTimeInterval(-Double(HabitSettings.dayCutoffHour) * 3600))
+    }
+
+    /// День, которому засчитывается отметка, сделанная в момент `moment`.
+    static func dayKey(forMoment moment: Date) -> String { key(today(moment)) }
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    static func key(_ date: Date) -> String {
+        formatter.timeZone = .current
+        return formatter.string(from: date)
+    }
+
+    static func date(_ key: String) -> Date? {
+        formatter.timeZone = .current
+        return formatter.date(from: key)
+    }
+}
+
+// MARK: - Хранение
+
+/// База привычек — JSON-файл в общей папке приложения и виджета.
+enum HabitStorage {
+    private static var url: URL { AppGroup.containerURL.appendingPathComponent("habits.json") }
+
+    /// Загружает базу; при первом запуске создаёт тестовую привычку.
+    static func load() -> HabitDB {
+        if let data = try? Data(contentsOf: url), let db = try? JSONDecoder().decode(HabitDB.self, from: data) {
+            return db
+        }
+        let db = HabitDB(habits: [TestHabit.make()])
+        save(db)
+        return db
+    }
+
+    static func save(_ db: HabitDB) {
+        guard let data = try? JSONEncoder().encode(db) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    static func update(_ change: (inout HabitDB) -> Void) {
+        var db = load()
+        change(&db)
+        save(db)
+    }
+}
+
+/// Тестовая привычка: случайные отметки за последний месяц (одинаковые при каждом создании).
+enum TestHabit {
+    static func make(now: Date = Date()) -> Habit {
+        var habit = Habit(name: "Test habit", colorHex: "#3478F6FF")
+        var rng = SeededRandom(seed: 42)
+        let cal = Calendar.current
+        for offset in 1...30 {
+            guard let day = cal.date(byAdding: .day, value: -offset, to: now) else { continue }
+            if rng.next() % 100 < 45 { habit.completions.insert(HabitDay.key(day)) }
+        }
+        habit.createdAt = cal.date(byAdding: .day, value: -30, to: now) ?? now
+        return habit
+    }
+}
+
+struct SeededRandom {
+    private var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state = state &* 6364136223846793005 &+ 1442695040888963407
+        return state >> 33
+    }
+}
+
+// MARK: - CSV
+
+enum HabitCSV {
+    /// «habit_id,habit_name,date,status,note» — по строке на каждый отмеченный день или день
+    /// с заметкой; status: done, partial, over или none (только заметка).
+    static func make(_ habits: [Habit]) -> String {
+        func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
+        var rows = ["habit_id,habit_name,date,status,note"]
+        for habit in habits {
+            for day in habit.completions.union(habit.notes.keys).sorted() {
+                let status = !habit.completions.contains(day) ? "none"
+                    : habit.overDays.contains(day) ? "over" : habit.partialDays.contains(day) ? "partial" : "done"
+                rows.append("\(habit.id.uuidString),\(quoted(habit.title)),\(day),\(status),\(quoted(habit.notes[day] ?? ""))")
+            }
+        }
+        return rows.joined(separator: "\n") + "\n"
+    }
+
+    static func file(_ habits: [Habit], name: String) -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        try? make(habits).write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+}
+
+// MARK: - Сетка по неделям
+
+enum HabitGrid {
+    /// Начало недели, в которую входит `date`, по настройкам системы.
+    static func weekStart(_ date: Date, calendar: Calendar = .current) -> Date {
+        calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? calendar.startOfDay(for: date)
+    }
+
+    /// Недели (старые сверху), каждая — 7 дней; дни после `today` равны nil.
+    static func weeks(count: Int, endingAt today: Date, calendar: Calendar = .current) -> [[Date?]] {
+        let last = weekStart(today, calendar: calendar)
+        let todayStart = calendar.startOfDay(for: today)
+        return (0..<count).reversed().map { back in
+            let start = calendar.date(byAdding: .weekOfYear, value: -back, to: last)!
+            return (0..<7).map { i in
+                let day = calendar.date(byAdding: .day, value: i, to: start)!
+                return day > todayStart ? nil : day
+            }
+        }
+    }
+
+    /// Буквы дней недели в порядке системы (M T W …).
+    static func weekdaySymbols(calendar: Calendar = .current) -> [String] {
+        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+        let first = calendar.firstWeekday - 1
+        return Array(symbols[first...] + symbols[..<first])
+    }
+}

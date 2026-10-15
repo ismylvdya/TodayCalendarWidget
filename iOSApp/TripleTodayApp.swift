@@ -1,93 +1,100 @@
 import AppIntents
 import EventKit
+import EventKitUI
 import SwiftUI
 import UserNotifications
 import WidgetKit
 
-/// iOS-приложение: доступ к календарю (виджет сам запросить его не может) и уведомления
-/// для событий с alert.
+/// iOS-приложение: привычки, настройки, доступ к календарю (виджет сам запросить его
+/// не может) и уведомления для событий с alert.
 @main
 struct TripleTodayApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    var body: some Scene {
-        WindowGroup {
-            AccessView()
-                // Нажатие на виджет может прийти сюда (calshow:<дата>) — сразу открываем Calendar.
-                .onOpenURL { url in
-                    if url.scheme == "calshow" { UIApplication.shared.open(url) }
-                }
+    init() {
+        // Заголовки экранов — скруглённым шрифтом, как названия списков в Reminders.
+        func rounded(_ size: CGFloat, _ weight: UIFont.Weight) -> UIFont {
+            let base = UIFont.systemFont(ofSize: size, weight: weight)
+            return base.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: size) } ?? base
         }
+        UINavigationBar.appearance().largeTitleTextAttributes = [.font: rounded(30, .bold)]
+        UINavigationBar.appearance().titleTextAttributes = [.font: rounded(17, .semibold)]
+    }
+
+    var body: some Scene {
+        WindowGroup { RootView() }
     }
 }
 
-struct AccessView: View {
-    @State private var status = EKEventStore.authorizationStatus(for: .event)
+/// Куда перейти после нажатия на уведомление или виджет.
+@MainActor
+final class AppRouter: ObservableObject {
+    static let shared = AppRouter()
+    struct EventRef: Identifiable { let id: String; let start: Date }
+    @Published var event: EventRef?
+    @Published var habit: UUID?
+}
+
+struct RootView: View {
+    @ObservedObject private var router = AppRouter.shared
     @Environment(\.scenePhase) private var scenePhase
     private let store = EKEventStore()
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: status == .fullAccess ? "checkmark.circle.fill" : "calendar.badge.exclamationmark")
-                .font(.system(size: 56))
-                .foregroundStyle(status == .fullAccess ? .green : .orange)
-            Text("TodayCalendarWidget").font(.title.bold())
-            if status == .fullAccess {
-                Text("Calendar access granted. Add the Double Today widget to your Home Screen.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("The widget needs full access to your calendars.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                Button(status == .notDetermined ? "Allow Calendar Access" : "Open Settings") { requestAccess() }
-                    .buttonStyle(.borderedProminent)
+        MainView(openHabit: router.habit)
+            .onOpenURL { url in
+                // Нажатие на календарный виджет (calshow:<дата>) — сразу в Calendar;
+                // на виджет привычки (todaycalendarwidget://habit/<id>) — на её страницу.
+                if url.scheme == "calshow" { UIApplication.shared.open(url) }
+                if url.host == "habit", let id = UUID(uuidString: url.lastPathComponent) { router.habit = id }
             }
-        }
-        .padding(32)
-        .onAppear {
-            if status == .notDetermined { requestAccess() }
-            #if DEBUG
-            DebugSeed.runIfRequested(store: store)
-            Task {
-                await DebugSeed.seedAlertIfRequested(store: store)
-                await DebugSeed.moveSeededIfRequested(store: store)
+            .sheet(item: $router.event) { EventCard(ref: $0) }
+            .task {
+                if EKEventStore.authorizationStatus(for: .event) == .notDetermined {
+                    _ = try? await store.requestFullAccessToEvents()
+                }
+                if !ReminderSync.hasAccess { _ = await ReminderSync.requestAccess() }
+                // При каждом запуске: разрешение на уведомления (первый раз — с запросом) и синхронизация.
+                await AlertScheduler.requestAuthorization()
+                await AlertScheduler.sync()
+                WidgetCenter.shared.reloadAllTimelines()
             }
-            #endif
-        }
-        // При каждом запуске: спросить разрешение на уведомления (первый раз — с запросом,
-        // дальше — без) и пересоздать уведомления.
-        .task {
-            await AlertScheduler.requestAuthorization()
-            await AlertScheduler.sync()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            // Открытие приложения — заодно повод сразу обновить виджет.
-            if phase == .active { refresh() }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
-            WidgetCenter.shared.reloadAllTimelines()
-        }
+            .onAppear {
+                #if DEBUG
+                DebugSeed.runIfRequested(store: store)
+                Task {
+                    await DebugSeed.seedAlertIfRequested(store: store)
+                    await DebugSeed.moveSeededIfRequested(store: store)
+                await DebugSeed.seedReminderIfRequested()
+                }
+                #endif
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Открытие приложения — заодно повод сразу обновить виджеты и уведомления.
+                guard phase == .active else { return }
+                WidgetCenter.shared.reloadAllTimelines()
+                Task { await AlertScheduler.sync() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+    }
+}
+
+/// Системная карточка события (как в Calendar) — по нажатию на уведомление, если так настроено.
+struct EventCard: UIViewControllerRepresentable {
+    let ref: AppRouter.EventRef
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let store = EKEventStore()
+        let window = store.predicateForEvents(withStart: ref.start.addingTimeInterval(-60), end: ref.start.addingTimeInterval(60), calendars: nil)
+        let controller = EKEventViewController()
+        controller.event = store.events(matching: window).first { $0.eventIdentifier == ref.id } ?? store.event(withIdentifier: ref.id)
+        controller.allowsEditing = true
+        return UINavigationController(rootViewController: controller)
     }
 
-    private func requestAccess() {
-        if status == .notDetermined {
-            store.requestFullAccessToEvents { _, _ in
-                DispatchQueue.main.async { refresh() }
-            }
-        } else if let url = URL(string: UIApplication.openSettingsURLString) {
-            UIApplication.shared.open(url)
-        }
-    }
-
-    private func refresh() {
-        status = EKEventStore.authorizationStatus(for: .event)
-        WidgetCenter.shared.reloadAllTimelines()
-        Task {
-            await AlertScheduler.requestAuthorization()
-            await AlertScheduler.sync()
-        }
-    }
+    func updateUIViewController(_ controller: UINavigationController, context: Context) {}
 }
 
 /// Принимает действия из уведомлений, в том числе когда iOS запускает приложение в фоне.
@@ -105,8 +112,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         case AlertScheduler.deleteAction:
             AlertScheduler.deleteEvent(userInfo: info)
         case UNNotificationDefaultActionIdentifier:
-            await AlertScheduler.keepAfterOpening(response.notification)
-            if let url = AlertScheduler.calendarURL(userInfo: info) { await UIApplication.shared.open(url) }
+            if CalendarSettings.keepAfterTap { await AlertScheduler.keepAfterOpening(response.notification) }
+            if CalendarSettings.notificationTapOpensEvent,
+               let id = info["eventID"] as? String, let start = info["start"] as? Double {
+                await MainActor.run { AppRouter.shared.event = .init(id: id, start: Date(timeIntervalSinceReferenceDate: start)) }
+            } else if let url = AlertScheduler.calendarURL(userInfo: info) {
+                await UIApplication.shared.open(url)
+            }
         default:
             break
         }
@@ -185,6 +197,19 @@ enum DebugSeed {
         try? store.save(ev, span: .thisEvent, commit: true)
         await AlertScheduler.requestAuthorization()
         await AlertScheduler.sync()
+    }
+
+    /// `-SeedReminder`: ежедневное повторяющееся напоминание «Read 20 pages» — для проверки привязки.
+    static func seedReminderIfRequested() async {
+        guard ProcessInfo.processInfo.arguments.contains("-SeedReminder") else { return }
+        let store = ReminderSync.store
+        guard await ReminderSync.requestAccess(), let list = store.defaultCalendarForNewReminders() else { return }
+        let reminder = EKReminder(eventStore: store)
+        reminder.title = "Read 20 pages"
+        reminder.calendar = list
+        reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day], from: Date())
+        reminder.addRecurrenceRule(EKRecurrenceRule(recurrenceWith: .daily, interval: 1, end: nil))
+        try? store.save(reminder, commit: true)
     }
 
     /// `-MoveSeededLater`: сдвигает тестовые «Buy groceries» на час позже и синхронизирует.
