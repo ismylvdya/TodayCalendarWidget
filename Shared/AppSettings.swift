@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Название приложения в интерфейсе и текстах.
 #if os(iOS)
-let appName = "Calendar Enhancer & Reminders Habitser"
+let appName = "Calendar Enhancer & Reminders Habiter"
 #else
 let appName = "Calendar Widget"
 #endif
@@ -50,7 +50,12 @@ enum CalendarSettings {
         static let notificationTapOpensEvent = "notificationTapOpensEvent"
         static let defaultDayStart = "defaultDayStart"
         static let defaultDayEnd = "defaultDayEnd"
+        static let prefix = "calendarNotificationPrefix"
+        static let separator = "calendarNotificationSeparator"
     }
+
+    static var prefix: String { d.string(forKey: Key.prefix) ?? "" }
+    static var separator: String { d.string(forKey: Key.separator) ?? NotificationTitle.defaultSeparator }
 
     static let defaultCursorHex = "#E9534CFF"
 
@@ -101,7 +106,14 @@ enum HabitSettings {
         static let overIconDarker = "habitOverIconDarker"
         static let overIconDarkness = "habitOverIconDarkness"
         static let gridBottomMargin = "habitGridBottomMargin"
+        static let previewMargin = "habitPreviewMargin"
+        static let prefix = "habitNotificationPrefix"
+        static let separator = "habitNotificationSeparator"
     }
+
+    static var prefix: String { d.string(forKey: Key.prefix) ?? "Habit" }
+    static var separator: String { d.string(forKey: Key.separator) ?? NotificationTitle.defaultSeparator }
+
 
     private static var d: UserDefaults { AppGroup.defaults }
     private static func double(_ key: String, _ fallback: Double) -> Double {
@@ -118,26 +130,28 @@ enum HabitSettings {
     static var widgetWeeks: Int { max(1, Int(double(Key.widgetWeeks, 4))) }
     static var buttonSize: Double { double(Key.buttonSize, 40) }
     /// Отступ кнопки от верхнего и правого края виджета.
-    static var buttonInset: Double { double(Key.buttonInset, 7) }
+    static var buttonInset: Double { double(Key.buttonInset, 12) }
     /// Отступ сетки от нижнего, левого и правого края виджета.
-    static var gridInset: Double { double(Key.gridInset, 12) }
+    static var gridInset: Double { double(Key.gridInset, 16) }
     /// Размер шрифта однострочного названия на виджетах (двустрочное — на треть меньше).
     static var titleSize: Double { double(Key.titleSize, 24) }
     /// Ближе какого расстояния до низа экрана подложка сетки на странице привычки не опускается.
-    static var gridBottomMargin: Double { double(Key.gridBottomMargin, 16) }
+    static var gridBottomMargin: Double { double(Key.gridBottomMargin, -11) }
+    /// Поле подложки вокруг дня в контекстном меню, pt.
+    static var previewMargin: Double { double(Key.previewMargin, 18) }
 
     static var style: HabitStyle {
-        HabitStyle(undoneOpacity: double(Key.undoneOpacity, 0.13),
+        HabitStyle(undoneOpacity: double(Key.undoneOpacity, 0.15),
                    partialPattern: PartialPattern(rawValue: d.string(forKey: Key.partialPattern) ?? "") ?? .icon,
                    stripeWidth: double(Key.stripeWidth, 6),
                    doneStripeOpacity: double(Key.doneStripeOpacity, 1),
                    undoneStripeOpacity: double(Key.undoneStripeOpacity, 0.13),
                    partialSymbol: symbol(Key.partialSymbol, "tortoise.fill"),
-                   overSymbol: symbol(Key.overSymbol, "star.fill"),
-                   partialIconScale: double(Key.partialIconScale, 0.55),
-                   overIconScale: double(Key.overIconScale, 0.55),
-                   overIconDarker: d.bool(forKey: Key.overIconDarker),
-                   overIconDarkness: double(Key.overIconDarkness, 0.35))
+                   overSymbol: symbol(Key.overSymbol, "bolt.fill"),
+                   partialIconScale: double(Key.partialIconScale, 0.65),
+                   overIconScale: double(Key.overIconScale, 0.65),
+                   overIconDarker: d.object(forKey: Key.overIconDarker) == nil ? true : d.bool(forKey: Key.overIconDarker),
+                   overIconDarkness: double(Key.overIconDarkness, 0.65))
     }
 }
 
@@ -158,19 +172,63 @@ enum PartialPattern: String, CaseIterable, Identifiable {
 
 /// Снимок настроек отрисовки клеток — для сетки и виджетов.
 struct HabitStyle {
-    var undoneOpacity = 0.13
+    var undoneOpacity = 0.15
     var partialPattern = PartialPattern.icon
     var stripeWidth = 6.0
     var doneStripeOpacity = 1.0
     var undoneStripeOpacity = 0.13
     var partialSymbol = "tortoise.fill"
-    var overSymbol = "star.fill"
+    var overSymbol = "bolt.fill"
     /// Размер иконок — доля стороны клетки.
-    var partialIconScale = 0.55
-    var overIconScale = 0.55
+    var partialIconScale = 0.65
+    var overIconScale = 0.65
     /// Иконка перевыполнения темнее клетки (смесь цвета привычки с чёрным), а не светлее.
-    var overIconDarker = false
-    var overIconDarkness = 0.35
+    var overIconDarker = true
+    var overIconDarkness = 0.65
+}
+
+/// Заголовок уведомления с префиксом: «Habit · инбокс», «[Habit] инбокс».
+enum NotificationTitle {
+    static let defaultSeparator = "·"
+    static let separators = ["·", "•", ":", "—", "|", "[ ]"]
+
+    static func make(_ title: String, prefix: String, separator: String) -> String {
+        let p = prefix.trimmingCharacters(in: .whitespaces)
+        guard !p.isEmpty else { return title }
+        switch separator {
+        case "[ ]": return "[\(p)] \(title)"
+        case ":": return "\(p):  \(title)"
+        default: return "\(p)  \(separator)  \(title)"
+        }
+    }
+}
+
+/// Картинки справа в уведомлениях: для привычек, для событий по умолчанию и для отдельных
+/// календарей. Хранятся в общей папке.
+struct NotificationImage {
+    let key: String
+
+    static let habit = NotificationImage(key: "habit")
+    static let calendar = NotificationImage(key: "calendar")
+    static func calendar(_ id: String) -> NotificationImage {
+        NotificationImage(key: "calendar-" + id.map { $0.isLetter || $0.isNumber ? String($0) : "_" }.joined())
+    }
+
+    /// Картинка для события: своя у календаря, иначе общая.
+    static func forEvent(calendarID: String) -> NotificationImage {
+        let own = calendar(calendarID)
+        return own.exists ? own : .calendar
+    }
+
+    var url: URL { AppGroup.containerURL.appendingPathComponent("notification-\(key).png") }
+    var exists: Bool { FileManager.default.fileExists(atPath: url.path) }
+
+    /// Копия во временной папке: iOS забирает файл вложения себе.
+    func attachmentCopy() -> URL? {
+        guard exists else { return nil }
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        return (try? FileManager.default.copyItem(at: url, to: copy)) == nil ? nil : copy
+    }
 }
 
 extension Color {

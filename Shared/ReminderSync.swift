@@ -81,18 +81,28 @@ enum ReminderSync {
 }
 #endif
 
-/// Отметка «сегодня выполнено» — из виджета и из приложения.
+/// Отметка сегодняшнего дня — из виджета, уведомления и приложения.
 enum HabitActions {
+    /// Кнопка виджета: отметить «выполнено», если сегодня ещё не отмечено.
     static func markToday(habitID: UUID, now: Date = Date()) {
+        guard let habit = HabitStorage.load().habits.first(where: { $0.id == habitID }),
+              habit.state(HabitDay.today(now)) == .none else { return }
+        mark(habitID: habitID, state: .done, now: now)
+    }
+
+    /// Поставить сегодня состояние `state`; напоминание в Reminders тоже отмечается выполненным.
+    static func mark(habitID: UUID, state: HabitDayState, now: Date = Date()) {
         var marked: Habit?
         HabitStorage.update { db in
             guard let i = db.habits.firstIndex(where: { $0.id == habitID }) else { return }
-            // Уже отмечено (в любом виде) — ничего не меняем.
-            if db.habits[i].state(HabitDay.today(now)) == .none { db.habits[i].set(HabitDay.today(now), done: true) }
+            db.habits[i].setState(state, day: HabitDay.today(now))
             marked = db.habits[i]
         }
         #if os(iOS)
-        if let marked { ReminderSync.completeToday(marked, now: now) }
+        if let marked, state != .none {
+            ReminderSync.completeToday(marked, now: now)
+            Task { await HabitNotifier.clearDelivered(habitID: habitID) }
+        }
         #endif
     }
 }

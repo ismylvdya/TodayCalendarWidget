@@ -35,10 +35,14 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>The widget shows today's calendar events.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Completed reminders are added to your habit history.</string>
+	<key>UIFileSharingEnabled</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

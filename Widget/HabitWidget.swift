@@ -52,6 +52,9 @@ struct HabitWidgetIntent: WidgetConfigurationIntent {
 
     @Parameter(title: "Title size", default: .appDefault)
     var titleSize: TitleSize
+
+    @Parameter(title: "Wrap Title", description: "Off: one line, the end fades out", default: false)
+    var wrapTitle: Bool
 }
 
 // MARK: - Кнопка «сегодня выполнено»
@@ -78,19 +81,22 @@ struct HabitEntry: TimelineEntry {
     let date: Date
     let habit: Habit?
     var titleSize = 24.0
+    var wrapTitle = false
 }
 
 struct HabitProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> HabitEntry { HabitEntry(date: Date(), habit: TestHabit.make()) }
 
     func snapshot(for configuration: HabitWidgetIntent, in context: Context) async -> HabitEntry {
-        HabitEntry(date: Date(), habit: await habit(for: configuration), titleSize: configuration.titleSize.points)
+        HabitEntry(date: Date(), habit: await habit(for: configuration), titleSize: configuration.titleSize.points,
+                   wrapTitle: configuration.wrapTitle)
     }
 
     func timeline(for configuration: HabitWidgetIntent, in context: Context) async -> Timeline<HabitEntry> {
         let now = Date()
         let midnight = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now))!
-        let entry = HabitEntry(date: now, habit: await habit(for: configuration), titleSize: configuration.titleSize.points)
+        let entry = HabitEntry(date: now, habit: await habit(for: configuration), titleSize: configuration.titleSize.points,
+                               wrapTitle: configuration.wrapTitle)
         return Timeline(entries: [entry], policy: .after(min(midnight, now.addingTimeInterval(30 * 60))))
     }
 
@@ -99,6 +105,7 @@ struct HabitProvider: AppIntentTimelineProvider {
         var db = HabitStorage.load()
         await ReminderSync.sync(&db)
         HabitStorage.save(db)
+        await HabitNotifier.sync()
         if let id = configuration.habit?.id, let habit = db.habits.first(where: { $0.id.uuidString == id }) { return habit }
         return db.habits.first { !$0.archived }
     }
@@ -112,22 +119,27 @@ struct HabitProvider: AppIntentTimelineProvider {
 struct HabitHeader: View {
     let habit: Habit
     let titleSize: Double
+    /// Переносить на две строки, если не влезает (иначе одна строка с растворением конца).
+    var wrap = false
 
     var body: some View {
         HStack(spacing: 6) {
-            ViewThatFits(in: .horizontal) {
-                title(size: titleSize).lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                title(size: titleSize * 2 / 3)
-                    .lineLimit(2)
-                    .mask(
-                        VStack(spacing: 0) {
-                            Color.black
-                            HStack(spacing: 0) {
-                                Color.black
-                                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 28)
-                            }
+            Group {
+                if wrap {
+                    ViewThatFits(in: .horizontal) {
+                        title(size: titleSize).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                        title(size: titleSize * 2 / 3).lineLimit(2).mask(fade(lines: 2))
+                    }
+                } else {
+                    // Одна строка от левого отступа; длинное название уходит под растворение
+                    // перед кнопкой и не влияет на раскладку.
+                    Color.clear
+                        .overlay(alignment: .leading) {
+                            title(size: titleSize).lineLimit(1).fixedSize(horizontal: true, vertical: false)
                         }
-                    )
+                        .clipped()
+                        .mask(fade(lines: 1))
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .widgetAccentable()
@@ -140,6 +152,17 @@ struct HabitHeader: View {
             .buttonStyle(.plain)
             .contentShape(Circle())
             .widgetAccentable()
+        }
+    }
+
+    /// Растворение конца последней строки.
+    private func fade(lines: Int) -> some View {
+        VStack(spacing: 0) {
+            if lines > 1 { Color.black }
+            HStack(spacing: 0) {
+                Color.black
+                LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 28)
+            }
         }
     }
 
@@ -184,18 +207,18 @@ struct HabitWidgetView: View {
                 grid(habit, cell: cell)
                     .frame(width: geo.size.width - 2 * inset, height: gridHeight, alignment: .bottom)
                     .padding(.horizontal, inset)
-                    // Чётко видны N недель (включая текущую), следующая — полупрозрачная, выше — под заголовком.
+                    // N недель (включая текущую) видны полностью: 100% — у верхнего края N-й недели;
+                    // выше линейно до 0 на той же длине; дальше ничего не видно.
                     .mask(
                         LinearGradient(stops: [
                             .init(color: .clear, location: 0),
-                            .init(color: .clear, location: max(0, fifthWeekTop - gap - cell / 2) / gridHeight),
-                            .init(color: .black.opacity(0.35), location: fifthWeekTop / gridHeight),
-                            .init(color: .black.opacity(0.35), location: (fourWeeksTop - gap) / gridHeight),
-                            .init(color: .black, location: (fourWeeksTop - gap / 2) / gridHeight),
+                            .init(color: .clear, location: max(0, fifthWeekTop + gap) / gridHeight),
+                            .init(color: .black, location: max(0, fourWeeksTop) / gridHeight),
+                            .init(color: .black, location: 1),
                         ], startPoint: .top, endPoint: .bottom)
                     )
 
-                HabitHeader(habit: habit, titleSize: entry.titleSize)
+                HabitHeader(habit: habit, titleSize: entry.titleSize, wrap: entry.wrapTitle)
                     .frame(width: geo.size.width - inset - buttonInset, height: buttonSize)
                     .padding(.leading, inset)
                     .padding(.top, buttonInset)
@@ -256,7 +279,7 @@ struct HabitGoalWidgetView: View {
         let goal = habit.weeklyGoal > 0 ? habit.weeklyGoal : 7
         let inset = HabitSettings.gridInset
         return VStack(spacing: 0) {
-            HabitHeader(habit: habit, titleSize: entry.titleSize)
+            HabitHeader(habit: habit, titleSize: entry.titleSize, wrap: entry.wrapTitle)
                 .frame(height: HabitSettings.buttonSize)
                 .padding(.leading, inset)
                 .padding(.trailing, HabitSettings.buttonInset)

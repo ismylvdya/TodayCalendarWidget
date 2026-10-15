@@ -79,6 +79,8 @@ targets:
         NSCalendarsFullAccessUsageDescription: The widget shows today's calendar events.
         NSRemindersFullAccessUsageDescription: Completed reminders are added to your habit history.
         ALTAppGroups: [group.com.chumbulev.TripleToday]
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         CFBundleURLTypes:
           - CFBundleURLName: com.chumbulev.TripleToday
             CFBundleURLSchemes: [todaycalendarwidget]

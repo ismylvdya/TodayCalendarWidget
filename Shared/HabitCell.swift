@@ -14,6 +14,10 @@ struct HabitCell: View {
     var overIconHex: String?
     /// Показать значок заметки (только в приложении).
     var hasNote = false
+    /// Свой цвет значка заметки.
+    var noteIconHex: String?
+    /// Непрозрачная подложка под клеткой (для поднятия в контекстном меню).
+    var opaqueBackground: Color?
 
     @Environment(\.colorScheme) private var scheme
 
@@ -21,7 +25,10 @@ struct HabitCell: View {
     private var undone: Color { color.opacity(style.undoneOpacity) }
 
     var body: some View {
+        // Рамка вида — ровно клетка, без запасов и отрицательных отступов: iOS кладёт снимок
+        // контекстного меню по рамке, и любое расхождение рамки и рисунка даёт сдвиг при возврате.
         ZStack(alignment: .bottomTrailing) {
+            if let opaqueBackground { shape.fill(opaqueBackground) }
             cell
             if hasNote {
                 // Прозрачная обводка вокруг значка: равномерно вырезаем чуть увеличенный силуэт.
@@ -33,7 +40,7 @@ struct HabitCell: View {
         .compositingGroup()
         .overlay(alignment: .bottomTrailing) {
             if hasNote {
-                NoteBadge(size: badgeSize, lineWidth: 0, cutout: false)
+                NoteBadge(size: badgeSize, lineWidth: 0, cutout: false, color: noteColor)
                     .offset(x: badgeOffset.width, y: badgeOffset.height)
             }
         }
@@ -45,7 +52,7 @@ struct HabitCell: View {
             shape.fill(undone)
             switch state {
             case .none:
-                if isToday { shape.strokeBorder(.secondary, lineWidth: 1.5) }
+                EmptyView()
             case .done:
                 shape.fill(color).widgetAccentable()
             case .partial:
@@ -116,6 +123,12 @@ struct HabitCell: View {
         }
     }
 
+    /// Значок заметки: свой цвет или середина между выполненным и невыполненным днём.
+    private var noteColor: Color {
+        if let hex = noteIconHex, let custom = Color(hex: hex) { return custom }
+        return color.opacity((1 + style.undoneOpacity) / 2)
+    }
+
     // Значок заметки над нижним правым углом.
     private var badgeSize: CGFloat { max(8, size * 0.3) }
     private var badgeOffset: CGSize { CGSize(width: badgeSize * 0.3, height: badgeSize * 0.2) }
@@ -127,6 +140,7 @@ struct NoteBadge: View {
     let size: CGFloat
     let lineWidth: CGFloat
     let cutout: Bool
+    var color: Color = .secondary
 
     var body: some View {
         let w = size * 0.78, h = size
@@ -137,8 +151,8 @@ struct NoteBadge: View {
                 .frame(width: w, height: h)
         } else {
             ZStack {
-                DocShape().fill(Color.secondary)
-                DocFold().fill(Color.secondary.opacity(0.6))
+                DocShape().fill(color)
+                DocFold().fill(Color.white.opacity(0.35))
             }
             .frame(width: w, height: h)
         }

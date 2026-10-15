@@ -37,10 +37,16 @@ struct Habit: Codable, Identifiable, Hashable {
     /// (недоделано — цвет выполненного дня, перевыполнено — цвет невыполненного).
     var partialIconHex: String?
     var overIconHex: String?
+    /// Свой цвет значка заметки; nil — по умолчанию.
+    var noteIconHex: String?
+    /// Время уведомлений — минуты от полуночи, до 5 в день.
+    var reminderTimes: [Int] = []
     /// Цель: сколько раз в неделю (0 — без цели).
     var weeklyGoal = 0
     /// Заметки к дням.
     var notes: [String: String] = [:]
+    /// Заметка к самой привычке.
+    var habitNote = ""
     /// В архиве: нет в списке и виджетах, история сохраняется.
     var archived = false
     var createdAt = Date()
@@ -113,8 +119,11 @@ struct Habit: Codable, Identifiable, Hashable {
         removedDays = try c.decodeIfPresent(Set<String>.self, forKey: .removedDays) ?? []
         partialIconHex = try c.decodeIfPresent(String.self, forKey: .partialIconHex)
         overIconHex = try c.decodeIfPresent(String.self, forKey: .overIconHex)
+        noteIconHex = try c.decodeIfPresent(String.self, forKey: .noteIconHex)
+        reminderTimes = try c.decodeIfPresent([Int].self, forKey: .reminderTimes) ?? []
         weeklyGoal = try c.decodeIfPresent(Int.self, forKey: .weeklyGoal) ?? 0
         notes = try c.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
+        habitNote = try c.decodeIfPresent(String.self, forKey: .habitNote) ?? ""
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }

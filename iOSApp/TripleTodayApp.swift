@@ -56,8 +56,10 @@ struct RootView: View {
                 if !ReminderSync.hasAccess { _ = await ReminderSync.requestAccess() }
                 // При каждом запуске: разрешение на уведомления (первый раз — с запросом) и синхронизация.
                 await AlertScheduler.requestAuthorization()
+                await HabitNotifier.sync()
                 await AlertScheduler.sync()
                 WidgetCenter.shared.reloadAllTimelines()
+                FilesBackup.write()
             }
             .onAppear {
                 #if DEBUG
@@ -66,6 +68,7 @@ struct RootView: View {
                     await DebugSeed.seedAlertIfRequested(store: store)
                     await DebugSeed.moveSeededIfRequested(store: store)
                 await DebugSeed.seedReminderIfRequested()
+                await DebugSeed.testAttachmentIfRequested()
                 }
                 #endif
             }
@@ -73,7 +76,10 @@ struct RootView: View {
                 // Открытие приложения — заодно повод сразу обновить виджеты и уведомления.
                 guard phase == .active else { return }
                 WidgetCenter.shared.reloadAllTimelines()
-                Task { await AlertScheduler.sync() }
+                Task {
+                    await HabitNotifier.sync()
+                    await AlertScheduler.sync()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
                 WidgetCenter.shared.reloadAllTimelines()
@@ -109,6 +115,17 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
         switch response.actionIdentifier {
+        case HabitNotifier.doneAction, HabitNotifier.partialAction, HabitNotifier.overAction:
+            await HabitNotifier.handle(action: response.actionIdentifier, userInfo: info)
+            await MainActor.run { FilesBackup.write() }
+        case UNNotificationDismissActionIdentifier:
+            // Смахнули — возвращаем (тихо).
+            await AlertScheduler.keepAfterOpening(response.notification)
+        case UNNotificationDefaultActionIdentifier where info["habitID"] != nil:
+            await AlertScheduler.keepAfterOpening(response.notification)
+            if let raw = info["habitID"] as? String, let id = UUID(uuidString: raw) {
+                await MainActor.run { AppRouter.shared.habit = id }
+            }
         case AlertScheduler.deleteAction:
             AlertScheduler.deleteEvent(userInfo: info)
         case UNNotificationDefaultActionIdentifier:
@@ -210,6 +227,28 @@ enum DebugSeed {
         reminder.dueDateComponents = Calendar.current.dateComponents([.year, .month, .day], from: Date())
         reminder.addRecurrenceRule(EKRecurrenceRule(recurrenceWith: .daily, interval: 1, end: nil))
         try? store.save(reminder, commit: true)
+    }
+
+    /// `-TestAttachment`: через 5 секунд уведомление с PNG-вложением на прозрачном фоне.
+    static func testAttachmentIfRequested() async {
+        guard ProcessInfo.processInfo.arguments.contains("-TestAttachment") else { return }
+        await AlertScheduler.requestAuthorization()
+        let config = UIImage.SymbolConfiguration(pointSize: 120, weight: .bold)
+        let symbol = UIImage(systemName: "checkmark.circle.fill", withConfiguration: config)!
+            .withTintColor(.systemBlue, renderingMode: .alwaysOriginal)
+        let format = UIGraphicsImageRendererFormat(); format.opaque = false; format.scale = 1
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 200, height: 200), format: format).pngData { _ in
+            symbol.draw(in: CGRect(x: 20, y: 20, width: 160, height: 160))
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("habit-test.png")
+        try? png.write(to: url)
+        let content = UNMutableNotificationContent()
+        content.title = "📥 инбокс разобрать"
+        content.body = "2/3 this week"
+        if let attachment = try? UNNotificationAttachment(identifier: "img", url: url) { content.attachments = [attachment] }
+        let request = UNNotificationRequest(identifier: "attachment-test", content: content,
+                                            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false))
+        try? await UNUserNotificationCenter.current().add(request)
     }
 
     /// `-MoveSeededLater`: сдвигает тестовые «Buy groceries» на час позже и синхронизирует.

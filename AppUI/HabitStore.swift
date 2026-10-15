@@ -36,8 +36,11 @@ final class HabitStore: ObservableObject {
         persist()
     }
 
-    func move(from source: IndexSet, to destination: Int) {
-        db.habits.move(fromOffsets: source, toOffset: destination)
+    /// Перестановка в списке активных привычек (архивные остаются на своих местах в конце).
+    func moveActive(from source: IndexSet, to destination: Int) {
+        var active = db.habits.filter { !$0.archived }
+        active.move(fromOffsets: source, toOffset: destination)
+        db.habits = active + db.habits.filter(\.archived)
         persist()
     }
 
@@ -47,14 +50,22 @@ final class HabitStore: ObservableObject {
         guard var habit = habit(id) else { return }
         habit.setState(state, day: day)
         update(habit)
-        #if os(iOS)
-        if state != .none && day == HabitDay.today() { ReminderSync.completeToday(habit) }
-        #endif
+        if state != .none && day == HabitDay.today() {
+            ReminderSync.completeToday(habit)
+            Task { await HabitNotifier.clearDelivered(habitID: id) }
+        }
+    }
+
+    /// Изменилось время уведомлений или архив — пересоздать уведомления.
+    func syncNotifications() {
+        Task { await HabitNotifier.sync() }
     }
 
     private func persist() {
         HabitStorage.save(db)
         WidgetCenter.shared.reloadTimelines(ofKind: "HabitWidget")
+        WidgetCenter.shared.reloadTimelines(ofKind: "HabitGoalWidget")
+        FilesBackup.write()
     }
 }
 
