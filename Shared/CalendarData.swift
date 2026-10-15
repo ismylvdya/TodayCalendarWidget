@@ -1,9 +1,11 @@
 import EventKit
 import Foundation
 
-/// Настройки отображения дня (часы, 24 = полночь). Значения по умолчанию — 6–12–18–24.
+/// Настройки отображения дня (часы, 24 = полночь).
 struct DayConfig {
-    var columns: [(start: Int, end: Int)] = [(6, 12), (12, 18), (18, 24)]
+    /// Границы таймлайна; колонки делят этот промежуток поровну.
+    var dayStart = 6
+    var dayEnd = 24
     /// nil — все календари.
     var calendarIDs: Set<String>? = nil
     /// Календари, чьи события исчезают из виджета, когда закончились.
@@ -17,30 +19,18 @@ struct DayConfig {
     /// Календари, чьи события (включая all-day) приглушены всегда.
     var dimCalendarIDs: Set<String> = []
 
-    /// Колонки для виджета с `count` колонками: три — из настроек, иначе день делится поровну.
+    /// Делит день на `count` колонок поровну; дробные границы округляются вниз.
+    /// Конец дня 0 = полночь (24). Если промежуток короче числа колонок или
+    /// конец не позже начала, берётся 6–24.
     func columns(count: Int) -> [(start: Int, end: Int)] {
-        count == 3 ? columns : Self.split(start: columns.first!.start, end: columns.last!.end, count: count)
-    }
-
-    /// Делит часы от `start` до `end` на `count` колонок; дробные границы округляются вниз.
-    static func split(start: Int, end: Int, count: Int) -> [(start: Int, end: Int)] {
+        var (start, end) = (dayStart, dayEnd == 0 ? 24 : dayEnd)
+        if !(0...24).contains(start) || !(0...24).contains(end) || end - start < count { (start, end) = (6, 24) }
         let b = (0...count).map { start + (end - start) * $0 / count }
         return zip(b, b.dropFirst()).map { ($0, $1) }
     }
 
     func isDimmed(_ ev: DayEvent, now: Date) -> Bool {
         dimCalendarIDs.contains(ev.calendarID) || (dimPastEvents && ev.end <= now)
-    }
-
-    /// Границы четырьмя числами в 0...24, 0 в конце = полночь (24).
-    /// Если они не строго по возрастанию, остаются значения по умолчанию.
-    static func columns(_ bounds: [Int]) -> [(start: Int, end: Int)] {
-        var b = bounds
-        if b.last == 0 { b[b.count - 1] = 24 }
-        guard b.count == 4, b.allSatisfy({ (0...24).contains($0) }), zip(b, b.dropFirst()).allSatisfy({ $0 < $1 }) else {
-            return DayConfig().columns
-        }
-        return [(b[0], b[1]), (b[1], b[2]), (b[2], b[3])]
     }
 }
 

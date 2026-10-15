@@ -99,7 +99,7 @@ enum Hour: Int, AppEnum {
 /// Панель «Изменить виджет» не умеет заголовки групп и отступы между ними.
 struct DayConfigurationIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource = "Triple Today"
-    static var description = IntentDescription("Calendars and timeline bounds.")
+    static var description = IntentDescription("Calendars and day bounds.")
 
     @Parameter(title: "Calendars to show", description: "Empty means all calendars")
     var calendars: [CalendarEntity]?
@@ -107,12 +107,6 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
     // Timeline
     @Parameter(title: "Day start", default: .h6)
     var dayStartHour: Hour
-
-    @Parameter(title: "1–2 columns boundary", default: .h12)
-    var split1Hour: Hour
-
-    @Parameter(title: "2–3 columns boundary", default: .h18)
-    var split2Hour: Hour
 
     @Parameter(title: "Day end", description: "0:00 or 24:00 means midnight", default: .h24)
     var dayEndHour: Hour
@@ -137,8 +131,6 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
         Summary {
             \.$calendars
             \.$dayStartHour
-            \.$split1Hour
-            \.$split2Hour
             \.$dayEndHour
             \.$hideAllDay
             \.$hidePastCalendars
@@ -150,7 +142,8 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
 
     var dayConfig: DayConfig {
         var c = DayConfig()
-        c.columns = DayConfig.columns([dayStartHour, split1Hour, split2Hour, dayEndHour].map(\.rawValue))
+        c.dayStart = dayStartHour.rawValue
+        c.dayEnd = dayEndHour.rawValue
         if let calendars, !calendars.isEmpty { c.calendarIDs = Set(calendars.map(\.id)) }
         c.hidePastCalendarIDs = Set((hidePastCalendars ?? []).map(\.id))
         c.invertCalendarIDs = Set((invertCalendars ?? []).map(\.id))
