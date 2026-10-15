@@ -125,13 +125,6 @@ struct DayView: View {
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
-        // Полноцветный режим — светлая тема как у системного Calendar; в монохроме цвета задаёт система.
-        content.environment(\.colorScheme, renderingMode == .fullColor ? .light : colorScheme)
-    }
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    @ViewBuilder private var content: some View {
         if !entry.hasAccess {
             VStack(spacing: 6) {
                 Image(systemName: "calendar.badge.exclamationmark").font(.title)
@@ -257,6 +250,13 @@ struct ColumnView: View {
     /// На сколько перенесённое событие заходит за границу колонки — до края цифр часа.
     private let overshoot: CGFloat = 7
 
+    @Environment(\.colorScheme) private var scheme
+
+    /// Цифры часов и линии сетки: в полноцветной тёмной теме — цвета системного Calendar,
+    /// в остальных случаях — системные полутона (в монохроме их перекрашивает система).
+    private var labelStyle: Color { mode == .fullColor && scheme == .dark ? Theme.darkLabel : .secondary }
+    private var gridStyle: Color { mode == .fullColor && scheme == .dark ? Theme.darkGrid : .secondary.opacity(0.35) }
+
     var body: some View {
         GeometryReader { geo in
             let from = Layout.date(hour: startHour, on: entry.date)
@@ -274,11 +274,11 @@ struct ColumnView: View {
                     let yy = top + CGFloat(h - startHour) / CGFloat(endHour - startHour) * height
                     Text("\(h % 24)")
                         .font(.system(size: 10, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(labelStyle)
                         .frame(width: gutter - 4, alignment: .trailing)
                         .offset(y: yy - labelHeight / 2)
                     Rectangle()
-                        .fill(.secondary.opacity(0.35))
+                        .fill(gridStyle)
                         .frame(width: eventsWidth, height: 0.5)
                         .offset(x: gutter, y: yy)
                 }
@@ -374,8 +374,19 @@ struct EventBlock: View {
 }
 
 enum Theme {
-    static let background = Color.white
     static let cursor = Color(red: 0xF1 / 255, green: 0x65 / 255, blue: 0x4E / 255)
+    static let darkBackground = Color(white: 0x3C / 255)
+    static let darkLabel = Color(white: 0xB0 / 255)
+    static let darkGrid = Color(white: 0x54 / 255)
+}
+
+/// Фон виджета по теме системы: белый или тёмно-серый, как у системного Calendar.
+struct WidgetBackground: View {
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        scheme == .dark ? Theme.darkBackground : Color.white
+    }
 }
 
 // MARK: - Widget
@@ -386,7 +397,7 @@ struct TodayCalendarWidget: Widget {
         AppIntentConfiguration(kind: "TodayCalendarWidget", intent: DayConfigurationIntent.self, provider: Provider()) { entry in
             TodayWidgetView(entry: entry)
                 .widgetURL(URL(string: "todaycalendarwidget://open"))
-                .containerBackground(Theme.background, for: .widget)
+                .containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName("Triple Today")
         .description("")
