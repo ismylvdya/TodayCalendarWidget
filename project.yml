@@ -69,7 +69,7 @@ targets:
     info:
       path: iOSApp/Info.plist
       properties:
-        CFBundleDisplayName: Triple Today
+        CFBundleDisplayName: TodayCalendarWidget
         NSCalendarsFullAccessUsageDescription: The widget shows today's calendar events.
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]

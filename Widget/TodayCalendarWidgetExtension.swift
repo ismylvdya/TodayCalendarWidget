@@ -37,7 +37,8 @@ struct Provider: AppIntentTimelineProvider {
         return DayEntry(date: now, events: SampleData.events, hasAccess: context.isPreview, config: config)
     }
 
-    /// Кадры на каждую минуту в течение часа — двигается только курсор.
+    /// Кадры на каждую минуту в течение часа — двигается только курсор. Перечитать календарь
+    /// просим через 15 минут; если система откажет, кадров хватит ещё на час.
     func timeline(for configuration: DayConfigurationIntent, in context: Context) async -> Timeline<DayEntry> {
         let now = Date()
         let cal = Calendar.current
@@ -53,7 +54,7 @@ struct Provider: AppIntentTimelineProvider {
             if d >= nextDay { break }
             entries.append(DayEntry(date: d, events: events, hasAccess: hasAccess, config: config, fetchedAt: now))
         }
-        let reloadAt = min(entries.last!.date.addingTimeInterval(60), nextDay)
+        let reloadAt = min(now.addingTimeInterval(15 * 60), nextDay)
         return Timeline(entries: entries, policy: .after(reloadAt))
     }
 }
@@ -74,6 +75,8 @@ struct PlacedEvent: Identifiable {
 }
 
 enum Layout {
+    static let columnSpacing: CGFloat = 14
+
     static func date(hour: Int, on day: Date) -> Date {
         Calendar.current.date(byAdding: .hour, value: hour, to: Calendar.current.startOfDay(for: day))!
     }
@@ -127,9 +130,15 @@ struct DayView: View {
     @Environment(\.widgetRenderingMode) private var renderingMode
     @Environment(\.widgetContentMargins) private var margins
 
-    /// Отступ подписи синхронизации от линии конца дня и от низа виджета —
-    /// такой же, как системный отступ контента справа.
+    /// Отступ подписи синхронизации от низа виджета — как системный отступ контента справа;
+    /// от линии конца дня — на 10% меньше.
     private var syncGap: CGFloat { margins.trailing > 0 ? margins.trailing : 16 }
+
+    /// Подпись о синхронизации появляется, только если данные устарели на 30 минут и больше.
+    private var staleSince: Date? {
+        guard let fetchedAt = entry.fetchedAt, entry.date.timeIntervalSince(fetchedAt) >= 30 * 60 else { return nil }
+        return fetchedAt
+    }
 
     var body: some View {
         if !entry.hasAccess {
@@ -141,10 +150,10 @@ struct DayView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .top, spacing: Layout.columnSpacing) {
                 let columns = entry.config.columns(count: columnCount)
                 ForEach(Array(columns.enumerated()), id: \.offset) { idx, col in
-                    let showsSync = idx == columns.count - 1 && entry.fetchedAt != nil
+                    let showsSync = idx == columns.count - 1 && staleSince != nil
                     VStack(alignment: .leading, spacing: 4) {
                         if idx == 0 {
                             AllDayList(events: entry.visibleEvents.filter(\.isAllDay), config: entry.config, mode: renderingMode)
@@ -152,10 +161,10 @@ struct DayView: View {
                         ColumnView(entry: entry, startHour: col.start, endHour: col.end, mode: renderingMode)
                         // Под концом дня — давность последней синхронизации; последняя колонка сжимается.
                         // Подпись стоит у самого низа контента, от линии конца дня её отделяет тот же отступ.
-                        if showsSync, let fetchedAt = entry.fetchedAt {
+                        if showsSync, let fetchedAt = staleSince {
                             SyncLabel(fetchedAt: fetchedAt, now: entry.date)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
-                                .padding(.top, syncGap - 4 - 1)
+                                .padding(.top, syncGap * 0.9 - 4 - 1)
                         }
                     }
                     // Остальным колонкам — место под подпись нижнего часа.
@@ -321,11 +330,12 @@ struct ColumnView: View {
                     // Кружок — посередине между краем соседней колонки и цифрами часов.
                     HStack(spacing: 0) {
                         Circle().frame(width: cursorDot, height: cursorDot)
-                        Rectangle().frame(height: 2.4)
+                        Capsule().frame(height: 2.4)
                     }
                     // В монохроме яркость = светлота цвета, поэтому курсор чисто белый — ярче всего остального.
                     .foregroundStyle(mode == .fullColor ? Theme.cursor : .white)
-                    .frame(width: geo.size.width - cursorX + cursorDot / 2)
+                    // Правый конец доходит до середины промежутка до следующей колонки.
+                    .frame(width: geo.size.width + Layout.columnSpacing / 2 - cursorX + cursorDot / 2)
                     .offset(x: cursorX - cursorDot / 2, y: yy - cursorDot / 2)
                     .widgetAccentable()
                 }
@@ -351,6 +361,7 @@ struct SyncLabel: View {
         }
         .font(.system(size: 9, weight: .medium).monospacedDigit())
         .foregroundStyle(.tertiary)
+        .opacity(0.7)
     }
 }
 
@@ -429,28 +440,47 @@ struct WidgetBackground: View {
 // MARK: - Widget
 
 @main
-struct TodayCalendarWidget: Widget {
-    var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: "TodayCalendarWidget", intent: DayConfigurationIntent.self, provider: Provider()) { entry in
-            TodayWidgetView(entry: entry)
-                .widgetURL(Self.tapURL)
-                .containerBackground(for: .widget) { WidgetBackground() }
-        }
-        .configurationDisplayName("Triple Today")
-        .description("")
-        .supportedFamilies(Self.families)
+struct TodayWidgets: WidgetBundle {
+    var body: some Widget {
+        DoubleTodayWidget()
+        #if os(macOS)
+        TripleTodayWidget()
+        #endif
     }
-
-    #if os(iOS)
-    /// На iOS виджет открывает Calendar напрямую.
-    static let tapURL = URL(string: "calshow://")
-    static let families: [WidgetFamily] = [.systemLarge]
-    #else
-    /// На macOS клик ловит фоновое приложение и открывает Calendar.
-    static let tapURL = URL(string: "todaycalendarwidget://open")
-    static let families: [WidgetFamily] = [.systemLarge, .systemExtraLarge]
-    #endif
 }
+
+/// Large: день в две колонки.
+struct DoubleTodayWidget: Widget {
+    var body: some WidgetConfiguration {
+        dayWidgetConfiguration(kind: "DoubleToday", name: "Double Today", family: .systemLarge)
+    }
+}
+
+/// Extra Large (только macOS): день в три колонки.
+struct TripleTodayWidget: Widget {
+    var body: some WidgetConfiguration {
+        dayWidgetConfiguration(kind: "TodayCalendarWidget", name: "Triple Today", family: .systemExtraLarge)
+    }
+}
+
+private func dayWidgetConfiguration(kind: String, name: LocalizedStringResource, family: WidgetFamily) -> some WidgetConfiguration {
+    AppIntentConfiguration(kind: kind, intent: DayConfigurationIntent.self, provider: Provider()) { entry in
+        TodayWidgetView(entry: entry)
+            .widgetURL(tapURL)
+            .containerBackground(for: .widget) { WidgetBackground() }
+    }
+    .configurationDisplayName(name)
+    .description("")
+    .supportedFamilies([family])
+}
+
+#if os(iOS)
+/// На iOS виджет открывает Calendar напрямую.
+private let tapURL = URL(string: "calshow://")
+#else
+/// На macOS клик ловит фоновое приложение и открывает Calendar.
+private let tapURL = URL(string: "todaycalendarwidget://open")
+#endif
 
 // MARK: - Sample data
 
@@ -473,8 +503,8 @@ enum SampleData {
     }
 }
 
-#Preview(as: .systemExtraLarge) {
-    TodayCalendarWidget()
+#Preview(as: .systemLarge) {
+    DoubleTodayWidget()
 } timeline: {
     DayEntry(date: Date(), events: SampleData.events, hasAccess: true)
 }

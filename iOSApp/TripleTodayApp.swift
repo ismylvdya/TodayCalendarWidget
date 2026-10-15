@@ -22,9 +22,9 @@ struct AccessView: View {
             Image(systemName: status == .fullAccess ? "checkmark.circle.fill" : "calendar.badge.exclamationmark")
                 .font(.system(size: 56))
                 .foregroundStyle(status == .fullAccess ? .green : .orange)
-            Text("Triple Today").font(.title.bold())
+            Text("TodayCalendarWidget").font(.title.bold())
             if status == .fullAccess {
-                Text("Calendar access granted. Add the Triple Today widget to your Home Screen.")
+                Text("Calendar access granted. Add the Double Today widget to your Home Screen.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
             } else {

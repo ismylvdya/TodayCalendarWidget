@@ -8,6 +8,7 @@ import WidgetKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = EKEventStore()
     private var lastFingerprint = ""
+    private var lastReload = Date.distantPast
     private var timer: Timer?
 
     static func main() {
@@ -44,10 +45,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh(force: true)
     }
 
+    /// Перезагружает виджет, если события изменились, и не реже раза в 15 минут —
+    /// чтобы виджет считал данные свежими и не показывал подпись «N min ago».
     private func refresh(force: Bool) {
         let fingerprint = CalendarData.fingerprint(CalendarData.todayEvents(store: store))
-        guard force || fingerprint != lastFingerprint else { return }
+        let stale = Date().timeIntervalSince(lastReload) >= 15 * 60
+        guard force || stale || fingerprint != lastFingerprint else { return }
         lastFingerprint = fingerprint
+        lastReload = Date()
         WidgetCenter.shared.reloadAllTimelines()
     }
 
