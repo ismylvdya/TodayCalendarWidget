@@ -171,9 +171,7 @@ struct DayView: View {
                         if idx == 0 {
                             AllDayList(events: entry.visibleEvents.filter(\.isAllDay), config: entry.config, mode: renderingMode)
                         }
-                        // В двух колонках кружок курсора чуть правее — на треть ширины подписи часа.
-                        ColumnView(entry: entry, startMinute: col.start, endMinute: col.end, mode: renderingMode,
-                                   cursorX: columnCount == 2 ? -5 + Layout.labelWidth / 3 : -5)
+                        ColumnView(entry: entry, startMinute: col.start, endMinute: col.end, mode: renderingMode)
                         // Под концом дня — давность последней синхронизации; последняя колонка сжимается.
                         // Подпись стоит у самого низа контента, от линии конца дня её отделяет тот же отступ.
                         if showsSync, let fetchedAt = staleSince {
@@ -287,11 +285,12 @@ struct ColumnView: View {
     let startMinute: Int
     let endMinute: Int
     let mode: WidgetRenderingMode
-    /// Центр кружка курсора относительно левого края колонки (левее цифр часов).
-    let cursorX: CGFloat
 
     private let gutter: CGFloat = 20
     private let labelHeight: CGFloat = 12
+    /// Центр кружка курсора относительно левого края колонки: левее цифр часов,
+    /// чуть правее середины промежутка — на шестую часть ширины подписи часа.
+    private let cursorX: CGFloat = -5 + Layout.labelWidth / 6
     private let cursorDot: CGFloat = 9
     /// На сколько перенесённое событие заходит за границу колонки — до края цифр часа.
     private let overshoot: CGFloat = 7
