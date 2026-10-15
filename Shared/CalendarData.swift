@@ -120,7 +120,7 @@ enum CalendarData {
             .joined(separator: ";")
     }
 
-    private static func rgb(of color: CGColor?) -> [Double] {
+    static func rgb(of color: CGColor?) -> [Double] {
         guard let color,
               let srgb = CGColorSpace(name: CGColorSpace.sRGB),
               let c = color.converted(to: srgb, intent: .defaultIntent, options: nil),

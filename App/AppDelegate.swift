@@ -56,7 +56,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
+    /// Клик по виджету: Calendar открывается на сегодняшнем дне. Если управлять
+    /// Calendar не разрешено, он просто открывается.
     func application(_ application: NSApplication, open urls: [URL]) {
-        NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Calendar.app"))
+        let script = NSAppleScript(source: """
+            tell application "Calendar"
+                activate
+                view calendar at (current date)
+            end tell
+            """)
+        var error: NSDictionary?
+        script?.executeAndReturnError(&error)
+        if error != nil {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Calendar.app"))
+        }
     }
 }

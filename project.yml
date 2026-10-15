@@ -28,6 +28,7 @@ targets:
       properties:
         CFBundleDisplayName: TodayCalendarWidget
         LSUIElement: true
+        NSAppleEventsUsageDescription: Opens Calendar on today's date when you click the widget.
         NSCalendarsFullAccessUsageDescription: Виджет показывает события сегодняшнего дня.
         CFBundleURLTypes:
           - CFBundleURLName: com.chumbulev.TodayCalendarWidget
@@ -36,6 +37,7 @@ targets:
       path: App/App.entitlements
       properties:
         com.apple.security.app-sandbox: true
+        com.apple.security.temporary-exception.apple-events: [com.apple.iCal]
         com.apple.security.personal-information.calendars: true
   TodayCalendarWidgetExtension:
     type: app-extension

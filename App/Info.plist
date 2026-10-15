@@ -33,6 +33,8 @@
 	<string>1</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Opens Calendar on today's date when you click the widget.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Виджет показывает события сегодняшнего дня.</string>
 </dict>

@@ -1,5 +1,7 @@
 import AppIntents
 import EventKit
+import ImageIO
+import UniformTypeIdentifiers
 import WidgetKit
 
 // MARK: - Календарь как параметр настроек
@@ -11,25 +13,60 @@ struct CalendarEntity: AppEntity {
     let id: String
     let title: String
     let source: String
+    /// sRGB-цвет календаря — кружок перед названием в настройках.
+    let rgb: [Double]
 
     var displayRepresentation: DisplayRepresentation {
-        DisplayRepresentation(title: "\(title)", subtitle: "\(source)")
+        DisplayRepresentation(title: "\(title)", subtitle: "\(source)",
+                              image: ColorDot.png(rgb).map { .init(data: $0, isTemplate: false) })
+    }
+
+    static func all() -> [CalendarEntity] {
+        EKEventStore().calendars(for: .event)
+            .map { CalendarEntity(id: $0.calendarIdentifier, title: $0.title, source: $0.source.title,
+                                  rgb: CalendarData.rgb(of: $0.cgColor)) }
+            .sorted { ($0.source, $0.title) < ($1.source, $1.title) }
     }
 }
 
 struct CalendarQuery: EntityQuery {
-    private func all() -> [CalendarEntity] {
-        EKEventStore().calendars(for: .event)
-            .map { CalendarEntity(id: $0.calendarIdentifier, title: $0.title, source: $0.source.title) }
-            .sorted { ($0.source, $0.title) < ($1.source, $1.title) }
-    }
-
     func entities(for identifiers: [String]) async throws -> [CalendarEntity] {
-        all().filter { identifiers.contains($0.id) }
+        CalendarEntity.all().filter { identifiers.contains($0.id) }
     }
 
     func suggestedEntities() async throws -> [CalendarEntity] {
-        all()
+        CalendarEntity.all()
+    }
+}
+
+/// Варианты для настроек, уточняющих отображение: только календари из «Calendars to show»
+/// (если там пусто — все).
+struct ShownCalendarsOptions: DynamicOptionsProvider {
+    @IntentParameterDependency<DayConfigurationIntent>(\.$calendars) var intent
+
+    func results() async throws -> [CalendarEntity] {
+        let all = CalendarEntity.all()
+        guard let shown = intent?.calendars, !shown.isEmpty else { return all }
+        let ids = Set(shown.map(\.id))
+        return all.filter { ids.contains($0.id) }
+    }
+}
+
+/// Цветной кружок календаря в виде PNG.
+enum ColorDot {
+    static func png(_ rgb: [Double]) -> Data? {
+        let size = 64
+        guard rgb.count >= 3,
+              let ctx = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.setFillColor(CGColor(srgbRed: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1))
+        ctx.fillEllipse(in: CGRect(x: 4, y: 4, width: size - 8, height: size - 8))
+        guard let image = ctx.makeImage() else { return nil }
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, nil)
+        return CGImageDestinationFinalize(dest) ? data as Data : nil
     }
 }
 
@@ -114,17 +151,17 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
     @Parameter(title: "Hide All-day Events", default: false)
     var hideAllDay: Bool
 
-    @Parameter(title: "Calendars to hide past events")
+    @Parameter(title: "Calendars to hide past events", optionsProvider: ShownCalendarsOptions())
     var hidePastCalendars: [CalendarEntity]?
 
     // Appearance
     @Parameter(title: "Dim past events for all calendars", default: false)
     var dimPast: Bool
 
-    @Parameter(title: "Calendars to invert colors (for monochrome mode)")
+    @Parameter(title: "Calendars to invert colors (for monochrome mode)", optionsProvider: ShownCalendarsOptions())
     var invertCalendars: [CalendarEntity]?
 
-    @Parameter(title: "Calendars with dim events")
+    @Parameter(title: "Calendars with dim events", optionsProvider: ShownCalendarsOptions())
     var dimCalendars: [CalendarEntity]?
 
     static var parameterSummary: some ParameterSummary {

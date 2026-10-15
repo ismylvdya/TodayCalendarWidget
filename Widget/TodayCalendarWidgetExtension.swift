@@ -1,3 +1,4 @@
+import AppIntents
 import EventKit
 import SwiftUI
 import WidgetKit
@@ -347,10 +348,13 @@ struct ColumnView: View {
                 if entry.date >= from && entry.date < to {
                     let yy = y(entry.date)
                     // Кружок — посередине между краем соседней колонки и цифрами часов.
-                    HStack(spacing: 0) {
+                    ZStack(alignment: .leading) {
+                        // Линия начинается в центре кружка, чтобы между ними не было щели;
+                        // скруглён только правый конец.
+                        UnevenRoundedRectangle(bottomTrailingRadius: 1.2, topTrailingRadius: 1.2)
+                            .frame(height: 2.4)
+                            .padding(.leading, cursorDot / 2)
                         Circle().frame(width: cursorDot, height: cursorDot)
-                        // Скруглён только правый конец; левый уходит под кружок.
-                        UnevenRoundedRectangle(bottomTrailingRadius: 1.2, topTrailingRadius: 1.2).frame(height: 2.4)
                     }
                     // В монохроме яркость = светлота цвета, поэтому курсор чисто белый — ярче всего остального.
                     .foregroundStyle(mode == .fullColor ? Theme.cursor : .white)
@@ -394,12 +398,6 @@ struct EventBlock: View {
     let continuesAfter: Bool
     let mode: WidgetRenderingMode
 
-    private static let timeFormat: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "H:mm"
-        return f
-    }()
-
     var body: some View {
         let color = eventTint(event, mode)
         // На стыке колонок углы прямые, а полоска доходит до самого края.
@@ -411,11 +409,6 @@ struct EventBlock: View {
                 Text(event.title)
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(height > 30 ? 2 : 1)
-                if height > 34 {
-                    Text(Self.timeFormat.string(from: event.start))
-                        .font(.system(size: 10, weight: .medium).monospacedDigit())
-                        .foregroundStyle(inverted ? HierarchicalShapeStyle.primary : .secondary)  // при инверсии выбивается целиком, как заголовок
-                }
             }
             .padding(.top, height > 16 ? 2 : 0)
             Spacer(minLength: 0)
@@ -442,18 +435,24 @@ struct EventBlock: View {
 }
 
 enum Theme {
-    static let cursor = Color(red: 0xEB / 255, green: 0x4E / 255, blue: 0x3E / 255)
-    static let darkBackground = Color(white: 0x3C / 255)
+    static let cursor = Color(red: 0xE9 / 255, green: 0x53 / 255, blue: 0x4C / 255)
+    /// Вертикальный градиент тёмного фона, как у системного виджета Calendar.
+    static let darkBackgroundTop = Color(red: 0x33 / 255, green: 0x33 / 255, blue: 0x35 / 255)
+    static let darkBackgroundBottom = Color(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1E / 255)
     static let darkLabel = Color(white: 0xB0 / 255)
     static let darkGrid = Color(white: 0x54 / 255)
 }
 
-/// Фон виджета по теме системы: белый или тёмно-серый, как у системного Calendar.
+/// Фон виджета по теме системы: белый или тёмный градиент, как у системного Calendar.
 struct WidgetBackground: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        scheme == .dark ? Theme.darkBackground : Color.white
+        if scheme == .dark {
+            LinearGradient(colors: [Theme.darkBackgroundTop, Theme.darkBackgroundBottom], startPoint: .top, endPoint: .bottom)
+        } else {
+            Color.white
+        }
     }
 }
 
@@ -486,7 +485,8 @@ struct TripleTodayWidget: Widget {
 private func dayWidgetConfiguration(kind: String, name: LocalizedStringResource, family: WidgetFamily) -> some WidgetConfiguration {
     AppIntentConfiguration(kind: kind, intent: DayConfigurationIntent.self, provider: Provider()) { entry in
         TodayWidgetView(entry: entry)
-            .widgetURL(tapURL)
+            .modifier(OpensCalendarOnTap())
+            .widgetURL(tapURL(for: entry.date))
             .containerBackground(for: .widget) { WidgetBackground() }
     }
     .configurationDisplayName(name)
@@ -494,12 +494,44 @@ private func dayWidgetConfiguration(kind: String, name: LocalizedStringResource,
     .supportedFamilies([family])
 }
 
+/// На iOS 18+ весь виджет — кнопка, которая сразу открывает Calendar, минуя приложение.
+/// Иначе срабатывает `widgetURL`: iOS запускает приложение, и оно перекидывает в Calendar.
+struct OpensCalendarOnTap: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 18, *) {
+            Button(intent: OpenCalendarIntent()) { content }
+                .buttonStyle(.plain)
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
 #if os(iOS)
-/// На iOS виджет открывает Calendar напрямую.
-private let tapURL = URL(string: "calshow://")
+@available(iOS 18, *)
+struct OpenCalendarIntent: AppIntent {
+    static var title: LocalizedStringResource = "Open Calendar"
+    static var isDiscoverable = false
+
+    func perform() async throws -> some IntentResult & OpensIntent {
+        .result(opensIntent: OpenURLIntent(calendarURL(for: Date())))
+    }
+}
+
+/// Calendar на iOS открывается сразу на дне, переданном секундами от 1 января 2001.
+private func calendarURL(for date: Date) -> URL {
+    URL(string: "calshow:\(Int(date.timeIntervalSinceReferenceDate))")!
+}
+
+/// На iOS виджет открывает Calendar напрямую, на сегодняшнем дне.
+private func tapURL(for date: Date) -> URL? { calendarURL(for: date) }
 #else
-/// На macOS клик ловит фоновое приложение и открывает Calendar.
-private let tapURL = URL(string: "todaycalendarwidget://open")
+/// На macOS клик ловит фоновое приложение и открывает Calendar на сегодняшнем дне.
+private func tapURL(for date: Date) -> URL? { URL(string: "todaycalendarwidget://open") }
 #endif
 
 // MARK: - Sample data

@@ -8,6 +8,10 @@ struct TripleTodayApp: App {
     var body: some Scene {
         WindowGroup {
             AccessView()
+                // Нажатие на виджет может прийти сюда (calshow:<дата>) — сразу открываем Calendar.
+                .onOpenURL { url in
+                    if url.scheme == "calshow" { UIApplication.shared.open(url) }
+                }
         }
     }
 }
