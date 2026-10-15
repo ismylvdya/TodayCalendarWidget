@@ -259,6 +259,39 @@ struct InputRow: View {
     }
 }
 
+/// Строка выбора в том же виде, что InputRow: название слева, плашка с меню справа.
+struct SelectRow<Value: Hashable>: View {
+    let title: String
+    let options: [(Value, String)]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer(minLength: 12)
+            Menu {
+                ForEach(options, id: \.0) { value, label in
+                    Button { selection = value } label: {
+                        if value == selection { Label(label, systemImage: "checkmark") } else { Text(label) }
+                    }
+                }
+            } label: {
+                HStack {
+                    Text(options.first { $0.0 == selection }?.1 ?? "")
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.up.chevron.down").font(.footnote).foregroundStyle(.secondary)
+                }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color(.tertiarySystemFill)))
+                .frame(maxWidth: 170)
+            }
+            .tint(.primary)
+        }
+    }
+}
+
 /// Поле для цвета «#RRGGBBAA» с образцом.
 struct HexField: View {
     let title: String
@@ -356,12 +389,14 @@ struct HabitDetailView: View {
                                        setState: { day, state in store.set(habitID, day: day, state: state) },
                                        editNote: { day in noteText = habit.note(day) ?? ""; noteDay = day })
 
-                    // Заметка к привычке: серое поле во всю ширину, растёт по тексту.
-                    TextField("Note", text: Binding(get: { habit.habitNote }, set: { var h = habit; h.habitNote = $0; store.update(h) }),
-                              axis: .vertical)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+                    // Заметка к привычке: поле во всю ширину, растёт по тексту.
+                    if habit.showsNote {
+                        TextField("Note", text: Binding(get: { habit.habitNote }, set: { var h = habit; h.habitNote = $0; store.update(h) }),
+                                  axis: .vertical)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
+                    }
 
                     StatsCard(habit: habit)
                     settingsCard(habit)
@@ -416,6 +451,11 @@ struct HabitDetailView: View {
             Divider()
             ColorPicker("Color", selection: Binding(get: { habit.color }, set: { var h = habit; h.colorHex = $0.hexString; store.update(h) }),
                         supportsOpacity: false)
+            Divider()
+            SelectRow(title: "Type", options: [(false, "Good"), (true, "Bad")],
+                      selection: Binding(get: { habit.harmful }, set: { var h = habit; h.harmful = $0; store.update(h) }))
+            Divider()
+            Toggle("Show Note", isOn: Binding(get: { habit.showsNote }, set: { var h = habit; h.showsNote = $0; store.update(h) }))
             Divider()
             Stepper(habit.weeklyGoal == 0 ? "Weekly goal: off" : "Weekly goal: \(habit.weeklyGoal) times",
                     value: Binding(get: { habit.weeklyGoal }, set: { var h = habit; h.weeklyGoal = $0; store.update(h) }), in: 0...7)
@@ -591,7 +631,9 @@ struct GrowingHistoryGrid: View {
             .onTapGesture { setState(day, state == .none ? .done : .none) }
             .padding(lift)
             .contentShape(.interaction, CellLiftShape(cell: cell, margin: lift, hasNote: false))
-            .contentShape(.contextMenuPreview, CellLiftShape(cell: cell, margin: lift, hasNote: true))
+            // Выступ под значок — только у дней с заметкой: у остальных он при возврате
+            // анимировался отдельным «углом».
+            .contentShape(.contextMenuPreview, CellLiftShape(cell: cell, margin: lift, hasNote: note != nil))
             .contextMenu {
                 Section(day.formatted(date: .complete, time: .omitted)) {
                     // Текущее состояние — бледное (пункт неактивен: выбрать его снова ничего не меняет).
@@ -770,22 +812,23 @@ struct HabitStats {
         func isDone(_ d: Date) -> Bool { done.contains(HabitDay.key(d)) }
         func day(_ back: Int) -> Date { cal.date(byAdding: .day, value: -back, to: today)! }
 
-        // Текущая серия: от сегодня (или вчера, если сегодня ещё не отмечено) назад.
-        var i = isDone(today) ? 0 : 1
-        while isDone(day(i)) { currentStreak += 1; i += 1 }
-
         let dates = done.compactMap(HabitDay.date).sorted()
-        var run = 0, prev: Date?
-        for d in dates {
-            run = (prev.flatMap { cal.dateComponents([.day], from: $0, to: d).day } == 1) ? run + 1 : 1
+        let start = cal.startOfDay(for: ([habit.createdAt] + dates).min() ?? today)
+        let total = (cal.dateComponents([.day], from: start, to: today).day ?? 0) + 1
+
+        // Серии: у полезной привычки — дни подряд, когда она была; у вредной — когда её не было.
+        func good(_ d: Date) -> Bool { habit.harmful ? !isDone(d) : isDone(d) }
+        // Текущая: от сегодня (или вчера, если сегодня ещё не засчитано) назад, не раньше начала.
+        var i = good(today) ? 0 : 1
+        while i < total, good(day(i)) { currentStreak += 1; i += 1 }
+        var run = 0
+        for back in stride(from: total - 1, through: 0, by: -1) {
+            run = good(day(back)) ? run + 1 : 0
             longestStreak = max(longestStreak, run)
-            prev = d
         }
 
         last7 = Double((0..<7).filter { isDone(day($0)) }.count) / 7
         last30 = Double((0..<30).filter { isDone(day($0)) }.count) / 30
-        let start = cal.startOfDay(for: ([habit.createdAt] + dates).min() ?? today)
-        let total = (cal.dateComponents([.day], from: start, to: today).day ?? 0) + 1
         allTime = Double(done.count) / Double(max(1, total))
 
         doneDays = done.count

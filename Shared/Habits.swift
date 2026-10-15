@@ -45,8 +45,11 @@ struct Habit: Codable, Identifiable, Hashable {
     var weeklyGoal = 0
     /// Заметки к дням.
     var notes: [String: String] = [:]
-    /// Заметка к самой привычке.
+    /// Заметка к самой привычке и показывать ли её поле (текст сохраняется и при скрытом поле).
     var habitNote = ""
+    var showsNote = true
+    /// Вредная привычка: серии считаются по дням, когда её НЕ было.
+    var harmful = false
     /// В архиве: нет в списке и виджетах, история сохраняется.
     var archived = false
     var createdAt = Date()
@@ -124,6 +127,8 @@ struct Habit: Codable, Identifiable, Hashable {
         weeklyGoal = try c.decodeIfPresent(Int.self, forKey: .weeklyGoal) ?? 0
         notes = try c.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
         habitNote = try c.decodeIfPresent(String.self, forKey: .habitNote) ?? ""
+        showsNote = try c.decodeIfPresent(Bool.self, forKey: .showsNote) ?? true
+        harmful = try c.decodeIfPresent(Bool.self, forKey: .harmful) ?? false
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }
