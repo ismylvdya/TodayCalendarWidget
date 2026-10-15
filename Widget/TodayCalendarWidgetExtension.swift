@@ -9,6 +9,8 @@ struct DayEntry: TimelineEntry {
     let events: [DayEvent]
     let hasAccess: Bool
     var config = DayConfig()
+    /// Когда виджет последний раз прочитал календарь (nil — данные-заглушка).
+    var fetchedAt: Date? = nil
 
     /// События, которые видны в момент `date`: без all-day, если они скрыты,
     /// и без прошедших из «скрываемых» календарей.
@@ -30,7 +32,7 @@ struct Provider: AppIntentTimelineProvider {
         let config = configuration.dayConfig
         if CalendarData.hasAccess {
             let events = CalendarData.todayEvents(store: EKEventStore(), now: now, calendarIDs: config.calendarIDs)
-            return DayEntry(date: now, events: events, hasAccess: true, config: config)
+            return DayEntry(date: now, events: events, hasAccess: true, config: config, fetchedAt: now)
         }
         return DayEntry(date: now, events: SampleData.events, hasAccess: context.isPreview, config: config)
     }
@@ -45,11 +47,11 @@ struct Provider: AppIntentTimelineProvider {
         let minuteStart = cal.dateInterval(of: .minute, for: now)?.start ?? now
         let nextDay = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: now))!
 
-        var entries = [DayEntry(date: now, events: events, hasAccess: hasAccess, config: config)]
+        var entries = [DayEntry(date: now, events: events, hasAccess: hasAccess, config: config, fetchedAt: now)]
         for i in 1...60 {
             let d = minuteStart.addingTimeInterval(Double(i) * 60)
             if d >= nextDay { break }
-            entries.append(DayEntry(date: d, events: events, hasAccess: hasAccess, config: config))
+            entries.append(DayEntry(date: d, events: events, hasAccess: hasAccess, config: config, fetchedAt: now))
         }
         let reloadAt = min(entries.last!.date.addingTimeInterval(60), nextDay)
         return Timeline(entries: entries, policy: .after(reloadAt))
@@ -135,12 +137,18 @@ struct DayView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             HStack(alignment: .top, spacing: 14) {
-                ForEach(Array(entry.config.columns(count: columnCount).enumerated()), id: \.offset) { idx, col in
+                let columns = entry.config.columns(count: columnCount)
+                ForEach(Array(columns.enumerated()), id: \.offset) { idx, col in
                     VStack(alignment: .leading, spacing: 4) {
                         if idx == 0 {
                             AllDayList(events: entry.visibleEvents.filter(\.isAllDay), config: entry.config, mode: renderingMode)
                         }
                         ColumnView(entry: entry, startHour: col.start, endHour: col.end, mode: renderingMode)
+                        // Под концом дня — давность последней синхронизации; последняя колонка сжимается.
+                        if idx == columns.count - 1, let fetchedAt = entry.fetchedAt {
+                            SyncLabel(fetchedAt: fetchedAt, now: entry.date)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
@@ -314,6 +322,26 @@ struct ColumnView: View {
                 }
             }
         }
+    }
+}
+
+/// «⟳ 20 min ago» / «⟳ 2 hr ago».
+struct SyncLabel: View {
+    let fetchedAt: Date
+    let now: Date
+
+    private var text: String {
+        let minutes = max(Int(now.timeIntervalSince(fetchedAt) / 60), 0)
+        return minutes < 60 ? "\(minutes) min ago" : "\(minutes / 60) hr ago"
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "arrow.clockwise")
+            Text(text)
+        }
+        .font(.system(size: 9, weight: .medium).monospacedDigit())
+        .foregroundStyle(.tertiary)
     }
 }
 
