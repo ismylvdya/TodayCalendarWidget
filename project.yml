@@ -61,7 +61,7 @@ targets:
   TripleTodayiOS:
     type: application
     platform: iOS
-    sources: [iOSApp]
+    sources: [iOSApp, Shared]
     dependencies:
       - target: TripleTodayiOSWidget
     settings:

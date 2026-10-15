@@ -49,6 +49,10 @@ struct Provider: AppIntentTimelineProvider {
         let config = configuration.dayConfig
         let hasAccess = CalendarData.hasAccess
         let events = hasAccess ? Self.events(config: config, now: now) : []
+        #if os(iOS)
+        // Каждое обновление виджета заодно обновляет уведомления для событий с alert.
+        await AlertScheduler.sync(now: now)
+        #endif
         let minuteStart = cal.dateInterval(of: .minute, for: now)?.start ?? now
         // Следующие сутки начинаются, когда закончились текущие (с ночным хвостом).
         let nextDay = config.fetchRange(anchor: config.anchor(for: now)).to
@@ -409,6 +413,13 @@ struct EventBlock: View {
                 Text(event.title)
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(height > 30 ? 2 : 1)
+                // На месте прежнего времени начала — колокольчик, если у события есть alert.
+                if event.hasAlarm && height > 34 {
+                    Image(systemName: "bell")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(inverted ? HierarchicalShapeStyle.primary : .secondary)  // при инверсии выбивается целиком
+                        .padding(.top, 2)
+                }
             }
             .padding(.top, height > 16 ? 2 : 0)
             Spacer(minLength: 0)
@@ -518,7 +529,9 @@ struct OpenCalendarIntent: AppIntent {
     static var isDiscoverable = false
 
     func perform() async throws -> some IntentResult & OpensIntent {
-        .result(opensIntent: OpenURLIntent(calendarURL(for: Date())))
+        // Нажатие на виджет — ещё и повод синхронизировать уведомления.
+        await AlertScheduler.sync()
+        return .result(opensIntent: OpenURLIntent(calendarURL(for: Date())))
     }
 }
 
@@ -542,7 +555,7 @@ enum SampleData {
         func ev(_ title: String, _ h: Double, _ dur: Double, allDay: Bool = false) -> DayEvent {
             let s = Calendar.current.startOfDay(for: d).addingTimeInterval(h * 3600)
             return DayEvent(id: title, title: title, start: s, end: s.addingTimeInterval(dur * 3600),
-                            isAllDay: allDay, calendarID: "sample", rgb: [0.45, 0.6, 1.0])
+                            isAllDay: allDay, calendarID: "sample", rgb: [0.45, 0.6, 1.0], hasAlarm: title == "meeting")
         }
         return [
             ev("pay bills", 0, 24, allDay: true),

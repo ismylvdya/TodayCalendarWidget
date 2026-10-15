@@ -72,6 +72,8 @@ struct DayEvent: Identifiable, Hashable {
     let calendarID: String
     /// sRGB-компоненты цвета календаря.
     let rgb: [Double]
+    /// У события есть alert — в плашке виден колокольчик.
+    var hasAlarm = false
 }
 
 enum CalendarData {
@@ -107,7 +109,8 @@ enum CalendarData {
                     end: ev.endDate,
                     isAllDay: ev.isAllDay,
                     calendarID: ev.calendar.calendarIdentifier,
-                    rgb: rgb(of: ev.calendar.cgColor)
+                    rgb: rgb(of: ev.calendar.cgColor),
+                    hasAlarm: ev.hasAlarms
                 )
             }
             .sorted { ($0.start, $0.title) < ($1.start, $1.title) }
@@ -116,7 +119,7 @@ enum CalendarData {
     /// Отпечаток дня: меняется, если поменялось хоть одно событие или наступил новый день.
     static func fingerprint(_ events: [DayEvent], now: Date = Date()) -> String {
         let day = Calendar.current.startOfDay(for: now).timeIntervalSince1970
-        return "\(day);" + events.map { "\($0.id)|\($0.title)|\($0.end.timeIntervalSince1970)|\($0.isAllDay)|\($0.rgb)" }
+        return "\(day);" + events.map { "\($0.id)|\($0.title)|\($0.end.timeIntervalSince1970)|\($0.isAllDay)|\($0.rgb)|\($0.hasAlarm)" }
             .joined(separator: ";")
     }
 
