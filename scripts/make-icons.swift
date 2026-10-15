@@ -1,8 +1,6 @@
-// Готовит иконки из исходников в Icons/:
-//   icon-ios.png                → icon-macos.png (форма macOS: скругление, поля, тень)
-//   icon-ios-tinted-source.png  → icon-ios-tinted.png (инверсия: светлый значок на чёрном)
+// Готовит Mac-иконку из iOS-иконки в Icons/:
+//   icon-ios.png → icon-macos.png (форма macOS: скругление, поля, тень)
 import AppKit
-import CoreImage
 
 func load(_ path: String) -> CGImage {
     let img = NSImage(contentsOfFile: path)!
@@ -33,10 +31,3 @@ mac.restoreGState()
 mac.addPath(shape); mac.clip()
 mac.draw(load("\(dir)/icon-ios.png"), in: body)
 save(mac.makeImage()!, "\(dir)/icon-macos.png")
-
-// iOS Tinted: система красит светлое, поэтому чёрный значок на белом инвертируется.
-let inverted = CIImage(cgImage: load("\(dir)/icon-ios-tinted-source.png")).applyingFilter("CIColorInvert")
-let tinted = CIContext().createCGImage(inverted, from: CGRect(x: 0, y: 0, width: 1024, height: 1024))!
-let flat = context()
-flat.draw(tinted, in: CGRect(x: 0, y: 0, width: 1024, height: 1024))
-save(flat.makeImage()!, "\(dir)/icon-ios-tinted.png")

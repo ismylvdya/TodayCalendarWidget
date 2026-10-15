@@ -1,9 +1,10 @@
 import EventKit
 import Foundation
 
-/// Настройки отображения дня (часы, 24 = полночь).
+/// Настройки отображения дня.
 struct DayConfig {
-    /// Границы таймлайна; колонки делят этот промежуток поровну.
+    /// Границы таймлайна в часах (0...24); колонки делят этот промежуток поровну.
+    /// Конец раньше начала означает следующие сутки: 9 → 2 — с 9:00 до 2:00 ночи.
     var dayStart = 6
     var dayEnd = 24
     /// nil — все календари.
@@ -19,14 +20,42 @@ struct DayConfig {
     /// Календари, чьи события (включая all-day) приглушены всегда.
     var dimCalendarIDs: Set<String> = []
 
-    /// Делит день на `count` колонок поровну; дробные границы округляются вниз.
-    /// Конец дня 0 = полночь (24). Если промежуток короче числа колонок или
-    /// конец не позже начала, берётся 6–24.
+    /// Границы дня в минутах от начала суток; конец может быть больше 24 часов.
+    /// Начало и конец должны различаться (0 → 24 — целые сутки); иначе 6:00–24:00.
+    var bounds: (start: Int, end: Int) {
+        guard (0...24).contains(dayStart), (0...24).contains(dayEnd) else { return (6 * 60, 24 * 60) }
+        let start = dayStart % 24
+        let end = dayEnd > start ? dayEnd : dayEnd + 24
+        if end - start >= 24 && !(start == 0 && dayEnd == 24) { return (6 * 60, 24 * 60) }
+        return (start * 60, end * 60)
+    }
+
+    /// Делит день на `count` колонок поровну (в минутах от начала суток). Границы
+    /// округляются вниз до часа; если часов меньше, чем колонок, — до минуты.
     func columns(count: Int) -> [(start: Int, end: Int)] {
-        var (start, end) = (dayStart, dayEnd == 0 ? 24 : dayEnd)
-        if !(0...24).contains(start) || !(0...24).contains(end) || end - start < count { (start, end) = (6, 24) }
-        let b = (0...count).map { start + (end - start) * $0 / count }
+        let (start, end) = bounds
+        let hours = (end - start) / 60
+        let b = (0...count).map { hours >= count ? start + hours * $0 / count * 60 : start + (end - start) * $0 / count }
         return zip(b, b.dropFirst()).map { ($0, $1) }
+    }
+
+    /// Начало суток, к которым относится момент `now`. Если день заходит за полночь
+    /// и сейчас ещё его ночной хвост, это вчерашние сутки.
+    func anchor(for now: Date) -> Date {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        let tailEnd = cal.date(byAdding: .minute, value: max(bounds.end - 24 * 60, 0), to: today)!
+        return now < tailEnd ? cal.date(byAdding: .day, value: -1, to: today)! : today
+    }
+
+    /// Момент `minute` минут от начала суток `anchor`.
+    static func date(minute: Int, anchor: Date) -> Date {
+        Calendar.current.date(byAdding: .minute, value: minute, to: anchor)!
+    }
+
+    /// Промежуток, за который нужны события: сутки дня плюс ночной хвост, если он есть.
+    func fetchRange(anchor: Date) -> (from: Date, to: Date) {
+        (anchor, Self.date(minute: max(bounds.end, 24 * 60), anchor: anchor))
     }
 
     func isDimmed(_ ev: DayEvent, now: Date) -> Bool {
@@ -50,10 +79,21 @@ enum CalendarData {
         EKEventStore.authorizationStatus(for: .event) == .fullAccess
     }
 
-    static func todayEvents(store: EKEventStore, now: Date = Date(), calendarIDs: Set<String>? = nil) -> [DayEvent] {
-        let cal = Calendar.current
-        let dayStart = cal.startOfDay(for: now)
-        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)!
+    /// События дня с началом суток `anchor`: обычные — пересекающие `from...to`,
+    /// all-day — только самих суток `anchor` (не завтрашние из ночного хвоста).
+    static func events(store: EKEventStore, anchor: Date, from: Date, to: Date, calendarIDs: Set<String>? = nil) -> [DayEvent] {
+        let anchorEnd = Calendar.current.date(byAdding: .day, value: 1, to: anchor)!
+        return fetch(store: store, from: from, to: to, calendarIDs: calendarIDs)
+            .filter { !$0.isAllDay || ($0.start < anchorEnd && $0.end > anchor) }
+    }
+
+    /// События сегодня и завтра — для отслеживания изменений.
+    static func upcomingEvents(store: EKEventStore, now: Date = Date()) -> [DayEvent] {
+        let today = Calendar.current.startOfDay(for: now)
+        return fetch(store: store, from: today, to: Calendar.current.date(byAdding: .day, value: 2, to: today)!, calendarIDs: nil)
+    }
+
+    private static func fetch(store: EKEventStore, from dayStart: Date, to dayEnd: Date, calendarIDs: Set<String>?) -> [DayEvent] {
         let calendars = calendarIDs.map { ids in store.calendars(for: .event).filter { ids.contains($0.calendarIdentifier) } }
         if let calendars, calendars.isEmpty { return [] }
         let predicate = store.predicateForEvents(withStart: dayStart, end: dayEnd, calendars: calendars)

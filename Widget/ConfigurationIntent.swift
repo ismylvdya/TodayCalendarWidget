@@ -108,7 +108,7 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
     @Parameter(title: "Day start", default: .h6)
     var dayStartHour: Hour
 
-    @Parameter(title: "Day end", description: "0:00 or 24:00 means midnight", default: .h24)
+    @Parameter(title: "Day end", description: "Earlier than Day start means the next day", default: .h24)
     var dayEndHour: Hour
 
     @Parameter(title: "Hide All-day Events", default: false)

@@ -48,7 +48,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Перезагружает виджет, если события изменились, и не реже раза в 15 минут —
     /// чтобы виджет считал данные свежими и не показывал подпись «N min ago».
     private func refresh(force: Bool) {
-        let fingerprint = CalendarData.fingerprint(CalendarData.todayEvents(store: store))
+        let fingerprint = CalendarData.fingerprint(CalendarData.upcomingEvents(store: store))
         let stale = Date().timeIntervalSince(lastReload) >= 15 * 60
         guard force || stale || fingerprint != lastFingerprint else { return }
         lastFingerprint = fingerprint

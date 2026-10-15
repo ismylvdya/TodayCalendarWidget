@@ -12,6 +12,9 @@ struct DayEntry: TimelineEntry {
     /// Когда виджет последний раз прочитал календарь (nil — данные-заглушка).
     var fetchedAt: Date? = nil
 
+    /// Начало суток, которые показывает виджет (с учётом дня, заходящего за полночь).
+    var anchor: Date { config.anchor(for: date) }
+
     /// События, которые видны в момент `date`: без all-day, если они скрыты,
     /// и без прошедших из «скрываемых» календарей.
     var visibleEvents: [DayEvent] {
@@ -31,7 +34,7 @@ struct Provider: AppIntentTimelineProvider {
         let now = Date()
         let config = configuration.dayConfig
         if CalendarData.hasAccess {
-            let events = CalendarData.todayEvents(store: EKEventStore(), now: now, calendarIDs: config.calendarIDs)
+            let events = Self.events(config: config, now: now)
             return DayEntry(date: now, events: events, hasAccess: true, config: config, fetchedAt: now)
         }
         return DayEntry(date: now, events: SampleData.events, hasAccess: context.isPreview, config: config)
@@ -44,9 +47,10 @@ struct Provider: AppIntentTimelineProvider {
         let cal = Calendar.current
         let config = configuration.dayConfig
         let hasAccess = CalendarData.hasAccess
-        let events = hasAccess ? CalendarData.todayEvents(store: EKEventStore(), now: now, calendarIDs: config.calendarIDs) : []
+        let events = hasAccess ? Self.events(config: config, now: now) : []
         let minuteStart = cal.dateInterval(of: .minute, for: now)?.start ?? now
-        let nextDay = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: now))!
+        // Следующие сутки начинаются, когда закончились текущие (с ночным хвостом).
+        let nextDay = config.fetchRange(anchor: config.anchor(for: now)).to
 
         var entries = [DayEntry(date: now, events: events, hasAccess: hasAccess, config: config, fetchedAt: now)]
         for i in 1...60 {
@@ -56,6 +60,13 @@ struct Provider: AppIntentTimelineProvider {
         }
         let reloadAt = min(now.addingTimeInterval(15 * 60), nextDay)
         return Timeline(entries: entries, policy: .after(reloadAt))
+    }
+
+    private static func events(config: DayConfig, now: Date) -> [DayEvent] {
+        let anchor = config.anchor(for: now)
+        let range = config.fetchRange(anchor: anchor)
+        return CalendarData.events(store: EKEventStore(), anchor: anchor, from: range.from, to: range.to,
+                                   calendarIDs: config.calendarIDs)
     }
 }
 
@@ -76,10 +87,12 @@ struct PlacedEvent: Identifiable {
 
 enum Layout {
     static let columnSpacing: CGFloat = 14
+    /// Где начинается видимая часть двузначной подписи часа (10 pt, правый край на 16 pt)
+    /// относительно левого края колонки. По ней выравниваются all-day плашки.
+    static let labelInset: CGFloat = 3.7
+    /// Видимая ширина двузначной подписи часа.
+    static let labelWidth: CGFloat = 11.5
 
-    static func date(hour: Int, on day: Date) -> Date {
-        Calendar.current.date(byAdding: .hour, value: hour, to: Calendar.current.startOfDay(for: day))!
-    }
 
     /// Раскладывает события колонки по дорожкам, чтобы пересекающиеся стояли рядом.
     static func place(_ events: [DayEvent], from: Date, to: Date) -> [PlacedEvent] {
@@ -158,7 +171,9 @@ struct DayView: View {
                         if idx == 0 {
                             AllDayList(events: entry.visibleEvents.filter(\.isAllDay), config: entry.config, mode: renderingMode)
                         }
-                        ColumnView(entry: entry, startHour: col.start, endHour: col.end, mode: renderingMode)
+                        // В двух колонках кружок курсора чуть правее — на треть ширины подписи часа.
+                        ColumnView(entry: entry, startMinute: col.start, endMinute: col.end, mode: renderingMode,
+                                   cursorX: columnCount == 2 ? -5 + Layout.labelWidth / 3 : -5)
                         // Под концом дня — давность последней синхронизации; последняя колонка сжимается.
                         // Подпись стоит у самого низа контента, от линии конца дня её отделяет тот же отступ.
                         if showsSync, let fetchedAt = staleSince {
@@ -172,6 +187,8 @@ struct DayView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
+            // Контент сдвинут влево, чтобы отступ слева до плашек равнялся отступу сверху.
+            .padding(.leading, -Layout.labelInset)
         }
     }
 }
@@ -258,20 +275,23 @@ struct AllDayList: View {
                 }
             }
             .padding(.bottom, 12)
+            // Левый край плашек — вровень с двузначными цифрами часов.
+            .padding(.leading, Layout.labelInset)
         }
     }
 }
 
 struct ColumnView: View {
     let entry: DayEntry
-    let startHour: Int
-    let endHour: Int
+    /// Границы колонки в минутах от начала суток (могут заходить на следующие сутки).
+    let startMinute: Int
+    let endMinute: Int
     let mode: WidgetRenderingMode
+    /// Центр кружка курсора относительно левого края колонки (левее цифр часов).
+    let cursorX: CGFloat
 
     private let gutter: CGFloat = 20
     private let labelHeight: CGFloat = 12
-    /// Центр кружка курсора относительно левого края колонки (левее цифр часов).
-    private let cursorX: CGFloat = -5
     private let cursorDot: CGFloat = 9
     /// На сколько перенесённое событие заходит за границу колонки — до края цифр часа.
     private let overshoot: CGFloat = 7
@@ -285,8 +305,8 @@ struct ColumnView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let from = Layout.date(hour: startHour, on: entry.date)
-            let to = Layout.date(hour: endHour, on: entry.date)
+            let from = DayConfig.date(minute: startMinute, anchor: entry.anchor)
+            let to = DayConfig.date(minute: endMinute, anchor: entry.anchor)
             // Сверху оставляем место под подпись первого часа.
             let top = labelHeight / 2
             let height = max(geo.size.height - top - 1, 1)
@@ -296,8 +316,8 @@ struct ColumnView: View {
 
             ZStack(alignment: .topLeading) {
                 // Часовая сетка
-                ForEach(startHour...endHour, id: \.self) { h in
-                    let yy = top + CGFloat(h - startHour) / CGFloat(endHour - startHour) * height
+                ForEach(Array(stride(from: (startMinute + 59) / 60, through: endMinute / 60, by: 1)), id: \.self) { h in
+                    let yy = top + CGFloat(h * 60 - startMinute) / CGFloat(endMinute - startMinute) * height
                     Text("\(h % 24)")
                         .font(.system(size: 10, weight: .semibold).monospacedDigit())
                         .foregroundStyle(labelStyle)
