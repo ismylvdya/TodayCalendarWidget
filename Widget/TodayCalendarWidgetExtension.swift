@@ -433,13 +433,23 @@ struct TodayCalendarWidget: Widget {
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: "TodayCalendarWidget", intent: DayConfigurationIntent.self, provider: Provider()) { entry in
             TodayWidgetView(entry: entry)
-                .widgetURL(URL(string: "todaycalendarwidget://open"))
+                .widgetURL(Self.tapURL)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
         .configurationDisplayName("Triple Today")
         .description("")
-        .supportedFamilies([.systemLarge, .systemExtraLarge])
+        .supportedFamilies(Self.families)
     }
+
+    #if os(iOS)
+    /// На iOS виджет открывает Calendar напрямую.
+    static let tapURL = URL(string: "calshow://")
+    static let families: [WidgetFamily] = [.systemLarge]
+    #else
+    /// На macOS клик ловит фоновое приложение и открывает Calendar.
+    static let tapURL = URL(string: "todaycalendarwidget://open")
+    static let families: [WidgetFamily] = [.systemLarge, .systemExtraLarge]
+    #endif
 }
 
 // MARK: - Sample data

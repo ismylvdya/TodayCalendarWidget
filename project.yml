@@ -2,6 +2,7 @@ name: TodayCalendarWidget
 options:
   deploymentTarget:
     macOS: "14.0"
+    iOS: "17.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -54,3 +55,40 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.personal-information.calendars: true
+  TripleTodayiOS:
+    type: application
+    platform: iOS
+    sources: [iOSApp]
+    dependencies:
+      - target: TripleTodayiOSWidget
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chumbulev.TripleToday
+        PRODUCT_NAME: TripleToday
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: iOSApp/Info.plist
+      properties:
+        CFBundleDisplayName: Triple Today
+        NSCalendarsFullAccessUsageDescription: The widget shows today's calendar events.
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+  TripleTodayiOSWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widget
+        excludes: [Info.plist, "*.entitlements"]
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chumbulev.TripleToday.Widget
+        PRODUCT_NAME: TripleTodayWidget
+        TARGETED_DEVICE_FAMILY: "1"
+    info:
+      path: iOSWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Triple Today
+        NSCalendarsFullAccessUsageDescription: The widget shows today's calendar events.
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
