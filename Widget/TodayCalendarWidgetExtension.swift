@@ -111,6 +111,17 @@ enum Layout {
 
 struct TodayWidgetView: View {
     let entry: DayEntry
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        DayView(entry: entry, columnCount: family == .systemLarge ? 2 : 3)
+    }
+}
+
+/// Сам виджет: таймлайн дня, разбитый на `columnCount` колонок.
+struct DayView: View {
+    let entry: DayEntry
+    let columnCount: Int
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
@@ -131,7 +142,7 @@ struct TodayWidgetView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             HStack(alignment: .top, spacing: 14) {
-                ForEach(Array(entry.config.columns.enumerated()), id: \.offset) { idx, col in
+                ForEach(Array(entry.config.columns(count: columnCount).enumerated()), id: \.offset) { idx, col in
                     VStack(alignment: .leading, spacing: 4) {
                         if idx == 0 {
                             AllDayList(events: entry.visibleEvents.filter(\.isAllDay), config: entry.config, mode: renderingMode)
@@ -379,7 +390,7 @@ struct TodayCalendarWidget: Widget {
         }
         .configurationDisplayName("Triple Today")
         .description("")
-        .supportedFamilies([.systemExtraLarge])
+        .supportedFamilies([.systemLarge, .systemExtraLarge])
     }
 }
 

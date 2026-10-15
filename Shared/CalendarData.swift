@@ -17,6 +17,17 @@ struct DayConfig {
     /// Календари, чьи события (включая all-day) приглушены всегда.
     var dimCalendarIDs: Set<String> = []
 
+    /// Колонки для виджета с `count` колонками: три — из настроек, иначе день делится поровну.
+    func columns(count: Int) -> [(start: Int, end: Int)] {
+        count == 3 ? columns : Self.split(start: columns.first!.start, end: columns.last!.end, count: count)
+    }
+
+    /// Делит часы от `start` до `end` на `count` колонок; дробные границы округляются вниз.
+    static func split(start: Int, end: Int, count: Int) -> [(start: Int, end: Int)] {
+        let b = (0...count).map { start + (end - start) * $0 / count }
+        return zip(b, b.dropFirst()).map { ($0, $1) }
+    }
+
     func isDimmed(_ ev: DayEvent, now: Date) -> Bool {
         dimCalendarIDs.contains(ev.calendarID) || (dimPastEvents && ev.end <= now)
     }
