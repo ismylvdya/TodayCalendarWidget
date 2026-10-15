@@ -330,7 +330,8 @@ struct ColumnView: View {
                     // Кружок — посередине между краем соседней колонки и цифрами часов.
                     HStack(spacing: 0) {
                         Circle().frame(width: cursorDot, height: cursorDot)
-                        Capsule().frame(height: 2.4)
+                        // Скруглён только правый конец; левый уходит под кружок.
+                        UnevenRoundedRectangle(bottomTrailingRadius: 1.2, topTrailingRadius: 1.2).frame(height: 2.4)
                     }
                     // В монохроме яркость = светлота цвета, поэтому курсор чисто белый — ярче всего остального.
                     .foregroundStyle(mode == .fullColor ? Theme.cursor : .white)
@@ -422,7 +423,7 @@ struct EventBlock: View {
 }
 
 enum Theme {
-    static let cursor = Color(red: 0xF1 / 255, green: 0x65 / 255, blue: 0x4E / 255)
+    static let cursor = Color(red: 0xEB / 255, green: 0x4E / 255, blue: 0x3E / 255)
     static let darkBackground = Color(white: 0x3C / 255)
     static let darkLabel = Color(white: 0xB0 / 255)
     static let darkGrid = Color(white: 0x54 / 255)
