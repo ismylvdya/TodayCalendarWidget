@@ -125,6 +125,11 @@ struct DayView: View {
     let entry: DayEntry
     let columnCount: Int
     @Environment(\.widgetRenderingMode) private var renderingMode
+    @Environment(\.widgetContentMargins) private var margins
+
+    /// Отступ подписи синхронизации от линии конца дня и от низа виджета —
+    /// такой же, как системный отступ контента справа.
+    private var syncGap: CGFloat { margins.trailing > 0 ? margins.trailing : 16 }
 
     var body: some View {
         if !entry.hasAccess {
@@ -139,21 +144,25 @@ struct DayView: View {
             HStack(alignment: .top, spacing: 14) {
                 let columns = entry.config.columns(count: columnCount)
                 ForEach(Array(columns.enumerated()), id: \.offset) { idx, col in
+                    let showsSync = idx == columns.count - 1 && entry.fetchedAt != nil
                     VStack(alignment: .leading, spacing: 4) {
                         if idx == 0 {
                             AllDayList(events: entry.visibleEvents.filter(\.isAllDay), config: entry.config, mode: renderingMode)
                         }
                         ColumnView(entry: entry, startHour: col.start, endHour: col.end, mode: renderingMode)
                         // Под концом дня — давность последней синхронизации; последняя колонка сжимается.
-                        if idx == columns.count - 1, let fetchedAt = entry.fetchedAt {
+                        // Подпись стоит у самого низа контента, от линии конца дня её отделяет тот же отступ.
+                        if showsSync, let fetchedAt = entry.fetchedAt {
                             SyncLabel(fetchedAt: fetchedAt, now: entry.date)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
+                                .padding(.top, syncGap - 4 - 1)
                         }
                     }
+                    // Остальным колонкам — место под подпись нижнего часа.
+                    .padding(.bottom, showsSync ? 0 : 6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
             }
-            .padding(.bottom, 6)
         }
     }
 }
@@ -336,8 +345,8 @@ struct SyncLabel: View {
     }
 
     var body: some View {
-        HStack(spacing: 2) {
-            Image(systemName: "arrow.clockwise")
+        HStack(spacing: 4.5) {
+            Image(systemName: "arrow.clockwise.icloud")
             Text(text)
         }
         .font(.system(size: 9, weight: .medium).monospacedDigit())
