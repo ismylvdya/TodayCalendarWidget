@@ -437,9 +437,11 @@ struct EventBlock: View {
                 if event.hasAlarm && height > 34 {
                     Image(systemName: "bell")
                         .font(.system(size: 10, weight: .medium))
-                        // Как текст события, но прозрачнее; при инверсии выбивается целиком.
+                        // Цвет календаря, но прозрачнее (в светлой теме — посередине между полоской
+                        // и заливкой плашки); при инверсии выбивается целиком.
                         .foregroundStyle(inverted ? AnyShapeStyle(HierarchicalShapeStyle.primary)
-                                         : mode == .fullColor && scheme == .dark && isPhone ? AnyShapeStyle(color.opacity(0.7))
+                                         : mode == .fullColor && isPhone
+                                            ? AnyShapeStyle(color.opacity(scheme == .dark ? 0.7 : (1 + 0.22) / 2))
                                          : AnyShapeStyle(.secondary))
                         .padding(.top, 2)
                 }
@@ -508,7 +510,12 @@ struct TodayWidgets: WidgetBundle {
 /// Large: день в две колонки.
 struct DoubleTodayWidget: Widget {
     var body: some WidgetConfiguration {
+        // Вид (kind) прежний — уже поставленные виджеты не слетают; меняется только название.
+        #if os(iOS)
+        dayWidgetConfiguration(kind: "DoubleToday", name: "Completely Today", family: .systemLarge)
+        #else
         dayWidgetConfiguration(kind: "DoubleToday", name: "Double Today", family: .systemLarge)
+        #endif
     }
 }
 

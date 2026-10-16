@@ -11,18 +11,29 @@ struct HabitEntity: AppEntity {
 
     let id: String
     let name: String
-    var displayRepresentation: DisplayRepresentation { DisplayRepresentation(title: "\(name)") }
+    /// Цвет привычки — кружок перед названием, как у календарей в «Calendars to show».
+    let rgb: [Double]
+
+    init(_ habit: Habit) {
+        id = habit.id.uuidString
+        name = habit.title
+        rgb = habit.rgb
+    }
+
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(name)", image: ColorDot.png(rgb).map { .init(data: $0, isTemplate: false) })
+    }
 }
 
 /// Привычки из приложения (кроме архивных), с поиском по названию.
 struct HabitQuery: EntityStringQuery {
     private func all() -> [HabitEntity] {
-        HabitStorage.load().habits.filter { !$0.archived }.map { HabitEntity(id: $0.id.uuidString, name: $0.title) }
+        HabitStorage.load().habits.filter { !$0.archived }.map(HabitEntity.init)
     }
 
     func entities(for identifiers: [String]) async throws -> [HabitEntity] {
         HabitStorage.load().habits.filter { identifiers.contains($0.id.uuidString) }
-            .map { HabitEntity(id: $0.id.uuidString, name: $0.title) }
+            .map(HabitEntity.init)
     }
     func suggestedEntities() async throws -> [HabitEntity] { all() }
     func entities(matching string: String) async throws -> [HabitEntity] {
@@ -259,7 +270,7 @@ struct HabitWidget: Widget {
             HabitWidgetView(entry: entry)
                 .containerBackground(for: .widget) { WidgetBackground() }
         }
-        .configurationDisplayName("Habit")
+        .configurationDisplayName("Habit Grid")
         .description("")
         .supportedFamilies([.systemSmall])
         .contentMarginsDisabled()

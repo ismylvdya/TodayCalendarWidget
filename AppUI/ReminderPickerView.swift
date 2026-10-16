@@ -30,7 +30,11 @@ struct ReminderPickerView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(reminder.title ?? "")
-                                Text(reminder.calendar.title).font(.caption).foregroundStyle(.secondary)
+                                // Значков списков EventKit не отдаёт — кружок цвета списка, как в Reminders.
+                                HStack(spacing: 4) {
+                                    Circle().fill(Color(cgColor: reminder.calendar.cgColor)).frame(width: 7, height: 7)
+                                    Text(reminder.calendar.title).font(.caption).foregroundStyle(.secondary)
+                                }
                             }
                             Spacer()
                             if reminder.hasRecurrenceRules { Image(systemName: "repeat").foregroundStyle(.secondary) }
