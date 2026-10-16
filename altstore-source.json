@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.2.1",
+          "buildVersion": "8",
+          "date": "2026-10-16",
+          "localizedDescription": "Page titles no longer disappear during or after pull to refresh, and a short title appears in the bar when you scroll. Banners stay 10 seconds (tap or swipe up to close), sit beside the back button and their width is adjustable in settings. The same-reason alert is marked 「Long Gap」 with a question mark in the habit's color. Marking a day earlier than the first one keeps the grid in place and adds the half year before it.",
+          "size": 1348485,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.2.1/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.2",
           "buildVersion": "7",
           "date": "2026-10-16",
@@ -87,11 +96,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.2",
+      "version": "1.2.1",
       "versionDate": "2026-10-16",
-      "versionDescription": "Why Not Done: hold a not-done day to pick a reason (or add a new one). Days without a reason get a question mark, and when one reason repeats several days in a row a notification suggests how to change the habit (prompt, ability or motivation, after Tiny Habits). Reasons are managed in Habits on Reminders Settings → Why Not Done.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.2/HabitsOnReminders.ipa",
-      "size": 1324296
+      "versionDescription": "Page titles no longer disappear during or after pull to refresh, and a short title appears in the bar when you scroll. Banners stay 10 seconds (tap or swipe up to close), sit beside the back button and their width is adjustable in settings. The same-reason alert is marked 「Long Gap」 with a question mark in the habit's color. Marking a day earlier than the first one keeps the grid in place and adds the half year before it.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.2.1/HabitsOnReminders.ipa",
+      "size": 1348485
     }
   ],
   "news": [],
