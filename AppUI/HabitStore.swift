@@ -21,12 +21,41 @@ final class HabitStore: ObservableObject {
     }
 
     /// Потянуть вниз в списке: всё заново — база, Reminders, виджеты и уведомления о событиях.
+    /// Итог — плашкой сверху: что изменилось в привычках, сколько уведомлений расписано.
     func forceRefresh() async {
+        let before = db.habits
         await refresh()
+        var parts = [Self.habitChanges(from: before, to: db.habits)]
         #if os(iOS)
-        await AlertScheduler.sync()
+        if !ReminderSync.hasAccess && db.habits.contains(where: { !$0.links.isEmpty }) { parts.append("no access to Reminders") }
+        if let alerts = await AlertScheduler.sync() { parts.append(alerts == 0 ? "no upcoming event alerts" : alerts == 1 ? "1 event alert scheduled" : "\(alerts) event alerts scheduled") }
         #endif
         WidgetCenter.shared.reloadAllTimelines()
+        parts.append("widgets reloaded")
+        Toast.show(parts.joined(separator: " · "))
+    }
+
+    /// «+2 days, −1 day in 2 habits» — отметки, пришедшие из Reminders и виджетов.
+    private static func habitChanges(from old: [Habit], to new: [Habit]) -> String {
+        let oldByID = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var added = 0, removed = 0, changed = 0, habits = 0
+        for habit in new {
+            guard let was = oldByID[habit.id] else { continue }
+            let a = habit.completions.subtracting(was.completions).count
+            let r = was.completions.subtracting(habit.completions).count
+            let c = habit.completions.intersection(was.completions).filter { key in
+                HabitDay.date(key).map { habit.state($0) != was.state($0) } ?? false
+            }.count
+            added += a; removed += r; changed += c
+            if a + r + c > 0 { habits += 1 }
+        }
+        guard habits > 0 else { return "Habits up to date" }
+        func days(_ n: Int) -> String { n == 1 ? "1 day" : "\(n) days" }
+        var items: [String] = []
+        if added > 0 { items.append("+" + days(added)) }
+        if removed > 0 { items.append("−" + days(removed)) }
+        if changed > 0 { items.append(days(changed) + " changed") }
+        return "Habits: " + items.joined(separator: ", ") + (habits == 1 ? " in 1 habit" : " in \(habits) habits")
     }
 
     func add(_ habit: Habit) {

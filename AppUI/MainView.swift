@@ -102,6 +102,8 @@ struct MainView: View {
     /// Заметка к сегодняшнему дню из меню чекбокса.
     @State private var noteHabit: UUID?
     @State private var noteText = ""
+    /// Большой заголовок ушёл под панель — показать короткий в панели, как у iOS.
+    @State private var titleScrolledAway = false
     /// Открыть привычку по ссылке из виджета или уведомления.
     var openHabit: UUID?
 
@@ -173,8 +175,19 @@ struct MainView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             // Размытие над заголовком при прокрутке, как на вложенных экранах: там оно есть из-за
-            // кнопки «назад», здесь панель пустая — ставим невидимый элемент и мягкий край.
-            .toolbar { ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) } }
+            // кнопки «назад», здесь — из-за короткого заголовка в панели и мягкого края.
+            // Заголовок — строка списка: при прокрутке он уезжает под пустую панель и пропадал
+            // совсем. Как у стандартного большого заголовка — в панели появляется короткий.
+            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 60 } action: { _, away in
+                withAnimation(.easeInOut(duration: 0.2)) { titleScrolledAway = away }
+            }
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(PageTitle.split(appName.replacingOccurrences(of: " & ", with: "\n& "), firstWidth: .infinity).0)
+                        .font(.system(.headline, design: .rounded)).lineLimit(1)
+                        .opacity(titleScrolledAway ? 1 : 0)
+                }
+            }
             .modifier(SoftTopEdge())
             .navigationDestination(for: Route.self) { route in
                 switch route {
@@ -199,8 +212,24 @@ struct MainView: View {
         .task { await store.refresh() }
         // Возврат в приложение: перечитать базу (виджет мог отметить день) и Reminders.
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await store.refresh() } } }
+        // Ушла последняя привычка из архива или корзины (удалили, вернули, разархивировали) —
+        // вместо пустого списка сразу на главную.
+        .onChange(of: path) { leaveEmptyList() }
+        .onChange(of: store.habits) { leaveEmptyList() }
         .onChange(of: openHabit) { _, id in if let id { path = [.habit(id)] } }
         .onAppear { if let openHabit { path = [.habit(openHabit)] } }
+    }
+}
+
+extension MainView {
+    private func leaveEmptyList() {
+        let empty: Bool
+        switch path.last {
+        case .archive: empty = !store.habits.contains { $0.archived && !$0.isTrashed }
+        case .trash: empty = !store.habits.contains(where: \.isTrashed)
+        default: return
+        }
+        if empty { path.removeAll() }
     }
 }
 

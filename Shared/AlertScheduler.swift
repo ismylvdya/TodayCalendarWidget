@@ -27,16 +27,18 @@ enum AlertScheduler {
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
     }
 
-    /// Перечитывает события и пересоздаёт уведомления.
-    static func sync(now: Date = Date()) async {
-        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return }
+    /// Перечитывает события и пересоздаёт уведомления. Возвращает, сколько уведомлений
+    /// запланировано (nil — нет доступа к календарю или уведомлениям, либо они выключены).
+    @discardableResult
+    static func sync(now: Date = Date()) async -> Int? {
+        guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return nil }
         let center = UNUserNotificationCenter.current()
-        guard await center.notificationSettings().authorizationStatus == .authorized else { return }
+        guard await center.notificationSettings().authorizationStatus == .authorized else { return nil }
         registerCategory()
 
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(idPrefix) }
         center.removePendingNotificationRequests(withIdentifiers: pending)
-        guard CalendarSettings.alertsEnabled else { return }
+        guard CalendarSettings.alertsEnabled else { return nil }
         let all = alerts(now: now)
         let future = all.filter { $0.fireDate > now }
         await notifyMovedIntoPast(all, now: now)
@@ -50,6 +52,7 @@ enum AlertScheduler {
             }
         }
         await removeDeliveredForMovedEvents()
+        return requests.count
     }
 
     /// После нажатия или смахивания iOS убирает уведомление — кладём его обратно тихо
