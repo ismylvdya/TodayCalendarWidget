@@ -29,6 +29,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: "Calendar Widget"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: true
         NSAppleEventsUsageDescription: Opens Calendar on today's date when you click the widget.
         NSCalendarsFullAccessUsageDescription: Виджет показывает события сегодняшнего дня.
@@ -52,6 +54,8 @@ targets:
       path: Widget/Info.plist
       properties:
         CFBundleDisplayName: "Calendar Widget"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSCalendarsFullAccessUsageDescription: Виджет показывает события сегодняшнего дня.
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
@@ -77,6 +81,8 @@ targets:
       path: iOSApp/Info.plist
       properties:
         CFBundleDisplayName: "Habits on Reminders"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleName: "Habits on Reminders"
         NSCalendarsFullAccessUsageDescription: The widget shows today's calendar events.
         NSRemindersFullAccessUsageDescription: Completed reminders are added to your habit history.
@@ -108,6 +114,8 @@ targets:
       path: iOSWidget/Info.plist
       properties:
         CFBundleDisplayName: "Habits on Reminders"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSCalendarsFullAccessUsageDescription: The widget shows today's calendar events.
         NSRemindersFullAccessUsageDescription: Completed reminders are added to your habit history.
         ALTAppGroups: [group.com.chumbulev.TripleToday]
