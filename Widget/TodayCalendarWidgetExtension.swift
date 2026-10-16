@@ -496,6 +496,15 @@ struct EventBlock: View {
                                             ? AnyShapeStyle((CalendarSettings.bellColor(dark: scheme == .dark) ?? color)
                                                 .opacity(CalendarSettings.bellOpacity(dark: scheme == .dark)))
                                          : AnyShapeStyle(.secondary))
+                        // На переходе между колонками растворяется вместе с плашкой: та же маска
+                        // затухания, но в координатах всей плашки.
+                        .mask {
+                            GeometryReader { g in
+                                FadeMask(top: continuesBefore, bottom: continuesAfter)
+                                    .frame(height: height)
+                                    .offset(y: -g.frame(in: .named("eventBlock")).minY)
+                            }
+                        }
                         .padding(.top, 2)
                 }
             }
@@ -506,6 +515,7 @@ struct EventBlock: View {
         .padding(.vertical, pad)
         .padding(.leading, 7)
         .frame(maxHeight: .infinity, alignment: .top)
+        .coordinateSpace(name: "eventBlock")
         .overlay(alignment: .leading) {
             UnevenRoundedRectangle(topLeadingRadius: continuesBefore ? 0 : 1.5, bottomLeadingRadius: continuesAfter ? 0 : 1.5,
                                    bottomTrailingRadius: continuesAfter ? 0 : 1.5, topTrailingRadius: continuesBefore ? 0 : 1.5)
