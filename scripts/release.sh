@@ -24,6 +24,10 @@ app["versions"].insert(0, {
     "localizedDescription": notes, "size": int(size), "minOSVersion": "18.0",
     "downloadURL": f"https://github.com/{repo}/releases/download/v{version}/HabitsOnReminders.ipa",
 })
+# Старые поля у самого приложения — для сборок AltStore, которые не читают список versions.
+latest = app["versions"][0]
+app.update({"version": latest["version"], "versionDate": latest["date"], "versionDescription": latest["localizedDescription"],
+            "downloadURL": latest["downloadURL"], "size": latest["size"]})
 json.dump(src, open("altstore-source.json", "w"), indent=2, ensure_ascii=False)
 open("altstore-source.json", "a").write("\n")
 PY

@@ -41,8 +41,14 @@
           "NSCalendarsFullAccessUsageDescription": "The widget shows today's calendar events.",
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
-      }
+      },
+      "version": "1.1",
+      "versionDate": "2026-10-16",
+      "versionDescription": "Backups (with iCloud folder), CSV import, trash, merge, missed days, Twice a day refinements, app icon picker, alerts for events moved earlier, and many settings refinements. See the commit history for details.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1/HabitsOnReminders.ipa",
+      "size": 1221556
     }
   ],
-  "news": []
+  "news": [],
+  "sourceURL": "https://raw.githubusercontent.com/ismylvdya/TodayCalendarWidget/main/altstore-source.json"
 }
