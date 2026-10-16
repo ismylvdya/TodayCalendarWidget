@@ -13,6 +13,9 @@ struct HabitCell: View {
     var partialIconHex: String?
     var overIconHex: String?
     var twiceIconHex: String?
+    /// Пропуск сверх допустимого — вместо бледного цвета привычки цвет пропусков (свой или общий).
+    var missed = false
+    var missedHex: String?
     /// Показать значок заметки (только в приложении).
     var hasNote = false
     /// Свой цвет значка заметки.
@@ -50,7 +53,11 @@ struct HabitCell: View {
 
     @ViewBuilder private var cell: some View {
         ZStack {
-            shape.fill(undone)
+            if missed && state == .none {
+                shape.fill(style.missedColor(missedHex).opacity(style.missedOpacity))
+            } else {
+                shape.fill(undone)
+            }
             switch state {
             case .none:
                 EmptyView()
@@ -252,5 +259,36 @@ struct DiagonalStripes: Shape {
             k += 1
         }
         return path
+    }
+}
+
+/// Перемычки между соседними пропусками в строке недели — пропуски выглядят одним «червяком».
+/// Перемычка заполняет промежуток и уголки у скруглений, но не заходит на сами дни.
+struct MissedLinks: View {
+    /// Пропуск ли каждый из 7 дней строки.
+    let flags: [Bool]
+    let cell: CGFloat
+    let gap: CGFloat
+    let color: Color
+
+    var body: some View {
+        Canvas { context, _ in
+            let radius = cell * 0.3
+            func day(_ i: Int) -> Path {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .path(in: CGRect(x: CGFloat(i) * (cell + gap), y: 0, width: cell, height: cell))
+            }
+            for i in 0..<max(0, flags.count - 1) where flags[i] && flags[i + 1] {
+                let x = CGFloat(i + 1) * cell + CGFloat(i) * gap
+                var layer = context
+                layer.clip(to: Path(CGRect(x: x - radius, y: 0, width: gap + 2 * radius, height: cell)))
+                layer.fill(Path(CGRect(x: x - radius, y: 0, width: gap + 2 * radius, height: cell)), with: .color(color))
+                layer.blendMode = .destinationOut
+                layer.fill(day(i), with: .color(.black))
+                layer.fill(day(i + 1), with: .color(.black))
+            }
+        }
+        .frame(width: CGFloat(flags.count) * cell + CGFloat(max(0, flags.count - 1)) * gap, height: cell)
+        .allowsHitTesting(false)
     }
 }

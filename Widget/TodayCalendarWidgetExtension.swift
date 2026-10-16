@@ -364,15 +364,17 @@ struct ColumnView: View {
                 // Курсор текущего момента
                 if entry.date >= from && entry.date < to {
                     let yy = y(entry.date)
-                    // Части курсора над событиями — прозрачнее (в координатах курсора).
-                    let origin = cursorX - cursorDot / 2
-                    let covered: [ClosedRange<CGFloat>] = placed.compactMap { p in
+                    // Части курсора над событиями — прозрачнее: в маске курсора — сами плашки событий
+                    // (с их скруглениями), в координатах курсора.
+                    let origin = CGPoint(x: cursorX - cursorDot / 2, y: yy - cursorDot / 2)
+                    let covered: [(rect: CGRect, top: CGFloat, bottom: CGFloat)] = placed.compactMap { p in
                         let y0 = y(p.start) - (p.continuesBefore ? overshoot : 0)
                         let h = max(y(p.end) + (p.continuesAfter ? overshoot : -1) - y0, 13)
-                        guard yy >= y0, yy <= y0 + h else { return nil }
+                        guard yy + cursorDot / 2 >= y0, yy - cursorDot / 2 <= y0 + h else { return nil }
                         let laneWidth = eventsWidth / CGFloat(p.lanes)
-                        let x = gutter + CGFloat(p.lane) * laneWidth - origin
-                        return x...(x + laneWidth - 2)
+                        let rect = CGRect(x: gutter + CGFloat(p.lane) * laneWidth - origin.x, y: y0 + 0.5 - origin.y,
+                                          width: laneWidth - 2, height: h)
+                        return (rect, p.continuesBefore ? 0 : 5, p.continuesAfter ? 0 : 5)
                     }
                     // Кружок — посередине между краем соседней колонки и цифрами часов.
                     ZStack(alignment: .leading) {
@@ -385,17 +387,19 @@ struct ColumnView: View {
                     }
                     // В монохроме яркость = светлота цвета, поэтому курсор чисто белый — ярче всего остального.
                     .foregroundStyle(mode == .fullColor ? CalendarSettings.cursorColor : .white)
+                    // Маска рисуется на холсте ровно в рамке курсора: плашки событий выше курсора,
+                    // и как отдельные виды они растягивали маску — её центрировало, и прозрачные
+                    // места съезжали с курсора.
                     .mask {
-                        ZStack(alignment: .leading) {
-                            Rectangle()
-                            ForEach(covered.indices, id: \.self) { i in
-                                Rectangle().fill(.black.opacity(1 - CalendarSettings.cursorOverEventOpacity))
-                                    .frame(width: covered[i].upperBound - covered[i].lowerBound)
-                                    .offset(x: covered[i].lowerBound)
-                                    .blendMode(.destinationOut)
+                        Canvas { context, size in
+                            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
+                            context.blendMode = .destinationOut
+                            for c in covered {
+                                let shape = UnevenRoundedRectangle(topLeadingRadius: c.top, bottomLeadingRadius: c.bottom,
+                                                                   bottomTrailingRadius: c.bottom, topTrailingRadius: c.top)
+                                context.fill(shape.path(in: c.rect), with: .color(.black.opacity(1 - CalendarSettings.cursorOverEventOpacity)))
                             }
                         }
-                        .compositingGroup()
                     }
                     // Правый конец доходит до середины промежутка до следующей колонки.
                     .frame(width: geo.size.width + Layout.columnSpacing / 2 - cursorX + cursorDot / 2)
@@ -460,11 +464,11 @@ struct EventBlock: View {
                 if event.hasAlarm && height > 34 {
                     Image(systemName: "bell")
                         .font(.system(size: 10, weight: .medium))
-                        // Цвет календаря, но прозрачнее (в светлой теме — посередине между полоской
-                        // и заливкой плашки); при инверсии выбивается целиком.
+                        // Цвет календаря, но прозрачнее (насколько — в настройках, отдельно для
+                        // светлой и тёмной темы); при инверсии выбивается целиком.
                         .foregroundStyle(inverted ? AnyShapeStyle(HierarchicalShapeStyle.primary)
                                          : mode == .fullColor && isPhone
-                                            ? AnyShapeStyle(color.opacity(scheme == .dark ? 0.7 : (1 + 0.22) / 2))
+                                            ? AnyShapeStyle(color.opacity(CalendarSettings.bellOpacity(dark: scheme == .dark)))
                                          : AnyShapeStyle(.secondary))
                         .padding(.top, 2)
                 }

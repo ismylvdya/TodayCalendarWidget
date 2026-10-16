@@ -28,7 +28,7 @@ struct HabitEntity: AppEntity {
 /// Привычки из приложения (кроме архивных), с поиском по названию.
 struct HabitQuery: EntityStringQuery {
     private func all() -> [HabitEntity] {
-        HabitStorage.load().habits.filter { !$0.archived }.map(HabitEntity.init)
+        HabitStorage.load().habits.filter { !$0.archived && !$0.isTrashed }.map(HabitEntity.init)
     }
 
     func entities(for identifiers: [String]) async throws -> [HabitEntity] {
@@ -66,6 +66,9 @@ struct HabitWidgetIntent: WidgetConfigurationIntent {
 
     @Parameter(title: "Wrap Title", description: "Off: one line, the end fades out", default: false)
     var wrapTitle: Bool
+
+    @Parameter(title: "Break Words", description: "With Wrap Title: break by letters with a hyphen, not by words", default: false)
+    var breakWords: Bool
 }
 
 // MARK: - Кнопка «сегодня выполнено»
@@ -94,6 +97,7 @@ struct HabitEntry: TimelineEntry {
     let habit: Habit?
     var titleSize = 24.0
     var wrapTitle = false
+    var breakWords = false
 }
 
 struct HabitProvider: AppIntentTimelineProvider {
@@ -101,14 +105,14 @@ struct HabitProvider: AppIntentTimelineProvider {
 
     func snapshot(for configuration: HabitWidgetIntent, in context: Context) async -> HabitEntry {
         HabitEntry(date: Date(), habit: await habit(for: configuration), titleSize: configuration.titleSize.points,
-                   wrapTitle: configuration.wrapTitle)
+                   wrapTitle: configuration.wrapTitle, breakWords: configuration.breakWords)
     }
 
     func timeline(for configuration: HabitWidgetIntent, in context: Context) async -> Timeline<HabitEntry> {
         let now = Date()
         let midnight = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now))!
         let entry = HabitEntry(date: now, habit: await habit(for: configuration), titleSize: configuration.titleSize.points,
-                               wrapTitle: configuration.wrapTitle)
+                               wrapTitle: configuration.wrapTitle, breakWords: configuration.breakWords)
         return Timeline(entries: [entry], policy: .after(min(midnight, now.addingTimeInterval(15 * 60))))
     }
 
@@ -117,8 +121,8 @@ struct HabitProvider: AppIntentTimelineProvider {
         var db = HabitStorage.load()
         await ReminderSync.sync(&db)
         HabitStorage.save(db)
-        if let id = configuration.habit?.id, let habit = db.habits.first(where: { $0.id.uuidString == id }) { return habit }
-        return db.habits.first { !$0.archived }
+        if let id = configuration.habit?.id, let habit = db.habits.first(where: { $0.id.uuidString == id && !$0.isTrashed }) { return habit }
+        return db.habits.first { !$0.archived && !$0.isTrashed }
     }
 }
 
@@ -132,6 +136,8 @@ struct HabitHeader: View {
     let titleSize: Double
     /// Переносить на две строки, если не влезает (иначе одна строка с растворением конца).
     var wrap = false
+    /// При переносе резать по буквам с дефисом, а не по словам.
+    var breakWords = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -139,7 +145,20 @@ struct HabitHeader: View {
                 if wrap {
                     ViewThatFits(in: .horizontal) {
                         title(size: titleSize).lineLimit(1).fixedSize(horizontal: true, vertical: false)
-                        title(size: titleSize * 2 / 3).lineLimit(2).mask(fade(lines: 2))
+                        if breakWords {
+                            // Первая строка — сколько букв влезает (с дефисом), остальное — второй.
+                            GeometryReader { g in
+                                let lines = Self.hyphenated(habit.title, width: g.size.width, size: titleSize * 2 / 3)
+                                VStack(alignment: .leading, spacing: 0) {
+                                    title(lines.0, size: titleSize * 2 / 3).lineLimit(1)
+                                    title(lines.1, size: titleSize * 2 / 3).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                                }
+                                .frame(maxHeight: .infinity, alignment: .leading)
+                                .mask(fade(lines: 2))
+                            }
+                        } else {
+                            title(size: titleSize * 2 / 3).lineLimit(2).mask(fade(lines: 2))
+                        }
                     }
                 } else {
                     // Одна строка от левого отступа; длинное название уходит под растворение
@@ -184,8 +203,31 @@ struct HabitHeader: View {
         }
     }
 
-    private func title(size: Double) -> some View {
-        Text(habit.title)
+    private func title(size: Double) -> some View { title(habit.title, size: size) }
+
+    /// Разбивка по буквам: в первую строку — самый длинный кусок, который влезает с дефисом
+    /// (на пробеле — без дефиса).
+    static func hyphenated(_ text: String, width: CGFloat, size: Double) -> (String, String) {
+        var font = UIFont.systemFont(ofSize: size, weight: .bold)
+        if let rounded = font.fontDescriptor.withDesign(.rounded) { font = UIFont(descriptor: rounded, size: size) }
+        func fits(_ s: String) -> Bool { (s as NSString).size(withAttributes: [.font: font]).width <= width }
+        guard !fits(text) else { return (text, "") }
+        let chars = Array(text)
+        var cut = 1
+        while cut < chars.count {
+            let next = String(chars[..<(cut + 1)])
+            if !fits(chars[cut] == " " ? next.trimmingCharacters(in: .whitespaces) : next + "-") { break }
+            cut += 1
+        }
+        let first = String(chars[..<cut]), rest = String(chars[cut...])
+        if first.hasSuffix(" ") || rest.hasPrefix(" ") {
+            return (first.trimmingCharacters(in: .whitespaces), rest.trimmingCharacters(in: .whitespaces))
+        }
+        return (first + "-", rest)
+    }
+
+    private func title(_ text: String, size: Double) -> some View {
+        Text(text)
             .font(.system(size: size, weight: .bold, design: .rounded))
             .foregroundStyle(habit.color)
     }
@@ -236,7 +278,7 @@ struct HabitWidgetView: View {
                         ], startPoint: .top, endPoint: .bottom)
                     )
 
-                HabitHeader(habit: habit, titleSize: entry.titleSize, wrap: entry.wrapTitle)
+                HabitHeader(habit: habit, titleSize: entry.titleSize, wrap: entry.wrapTitle, breakWords: entry.breakWords)
                     .frame(width: geo.size.width - inset - buttonInset, height: buttonSize)
                     .padding(.leading, inset)
                     .padding(.top, buttonInset)
@@ -247,6 +289,7 @@ struct HabitWidgetView: View {
     private func grid(_ habit: Habit, cell: CGFloat) -> some View {
         let today = HabitDay.today(entry.date)
         let style = HabitSettings.style
+        let missed = habit.missedDays(today: today)
         return VStack(spacing: gap) {
             ForEach(Array(HabitGrid.weeks(count: weeks + 2, endingAt: today).enumerated()), id: \.offset) { _, week in
                 HStack(spacing: gap) {
@@ -254,11 +297,16 @@ struct HabitWidgetView: View {
                         if let day = week[i] {
                             HabitCell(state: habit.state(day), isToday: day == today, color: habit.color, size: cell,
                                       style: style, partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex,
-                                      twiceIconHex: habit.twiceIconHex)
+                                      twiceIconHex: habit.twiceIconHex, missed: missed.contains(HabitDay.key(day)),
+                                      missedHex: habit.missedHex)
                         } else {
                             Color.clear.frame(width: cell, height: cell)
                         }
                     }
+                }
+                .background(alignment: .topLeading) {
+                    MissedLinks(flags: week.map { $0.map { missed.contains(HabitDay.key($0)) } ?? false }, cell: cell, gap: gap,
+                                color: style.missedColor(habit.missedHex).opacity(style.missedLinkOpacity))
                 }
             }
         }
@@ -298,7 +346,7 @@ struct HabitGoalWidgetView: View {
         let goal = habit.weeklyGoal > 0 ? habit.weeklyGoal : 7
         let inset = HabitSettings.gridInset
         return VStack(spacing: 0) {
-            HabitHeader(habit: habit, titleSize: entry.titleSize, wrap: entry.wrapTitle)
+            HabitHeader(habit: habit, titleSize: entry.titleSize, wrap: entry.wrapTitle, breakWords: entry.breakWords)
                 .frame(height: HabitSettings.buttonSize)
                 .padding(.leading, inset)
                 .padding(.trailing, HabitSettings.buttonInset)

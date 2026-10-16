@@ -57,8 +57,17 @@ struct Habit: Codable, Identifiable, Hashable {
     var twiceADay = false
     /// Свой цвет отметки «дважды»; nil — по умолчанию.
     var twiceIconHex: String?
+    /// Подсвечивать пропуски: несделанные дни подряд сверх `allowedSkips` (цвет — общий).
+    var highlightMissed = false
+    var allowedSkips = 1
+    /// Свой цвет пропусков; nil — общий.
+    var missedHex: String?
     /// В архиве: нет в списке и виджетах, история сохраняется.
     var archived = false
+    /// В корзине (с какого момента): нет ни в списке, ни в архиве, ни в виджетах; оттуда — вернуть
+    /// или удалить насовсем.
+    var trashedAt: Date?
+    var isTrashed: Bool { trashedAt != nil }
     var createdAt = Date()
 
     init(name: String, colorHex: String = "#3478F6FF") {
@@ -145,6 +154,28 @@ struct Habit: Codable, Identifiable, Hashable {
         twiceADay ? state(day) == .twice : state(day) != .none
     }
 
+    /// Пропуски сверх допустимого: несделанные дни подряд (от первой отметки до вчера), если их
+    /// больше `allowedSkips`, — подсвечиваются все дни такой серии. У вредной привычки не считаются.
+    func missedDays(today: Date = HabitDay.today()) -> Set<String> {
+        guard highlightMissed, !harmful,
+              let first = completions.compactMap(HabitDay.date).min() else { return [] }
+        let cal = Calendar.current
+        var missed: Set<String> = [], run: [String] = []
+        var day = first
+        while day < today {
+            let key = HabitDay.key(day)
+            if completions.contains(key) {
+                if run.count > allowedSkips { missed.formUnion(run) }
+                run = []
+            } else {
+                run.append(key)
+            }
+            day = cal.date(byAdding: .day, value: 1, to: day)!
+        }
+        if run.count > allowedSkips { missed.formUnion(run) }
+        return missed
+    }
+
     /// Сколько раз сделано за день (у «Twice a day» дважды — 2).
     func units(_ day: Date) -> Int { twiceADay ? state(day).units : (isDone(day) ? 1 : 0) }
 
@@ -170,7 +201,11 @@ struct Habit: Codable, Identifiable, Hashable {
         harmful = try c.decodeIfPresent(Bool.self, forKey: .harmful) ?? false
         twiceADay = try c.decodeIfPresent(Bool.self, forKey: .twiceADay) ?? false
         twiceIconHex = try c.decodeIfPresent(String.self, forKey: .twiceIconHex)
+        highlightMissed = try c.decodeIfPresent(Bool.self, forKey: .highlightMissed) ?? false
+        allowedSkips = try c.decodeIfPresent(Int.self, forKey: .allowedSkips) ?? 1
+        missedHex = try c.decodeIfPresent(String.self, forKey: .missedHex)
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+        trashedAt = try c.decodeIfPresent(Date.self, forKey: .trashedAt)
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }
 }
@@ -301,6 +336,136 @@ enum HabitCSV {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         try? make(habits).write(to: url, atomically: true, encoding: .utf8)
         return url
+    }
+
+    // MARK: Импорт
+
+    /// Привычка из чужого (или своего) CSV.
+    struct Imported {
+        var id: UUID?
+        var name: String
+        var states: [String: HabitDayState] = [:]
+        var notes: [String: String] = [:]
+    }
+
+    /// Понимает форматы:
+    /// - свой (`habit_id,habit_name,date,status,note`);
+    /// - Loop Habit Tracker: общий `Checkmarks.csv` (`Date,Привычка1,Привычка2,…`, значения
+    ///   YES_MANUAL / YES_AUTO / NO / SKIP / UNKNOWN или числа) и файл одной привычки
+    ///   (`Date,Value,Notes` — название берётся из имени папки или файла);
+    /// - любой «длинный» CSV: столбец даты и столбец названия привычки, необязательно — статус и заметка.
+    static func parse(_ text: String, fileName: String) -> [Imported] {
+        let rows = csvRows(text).filter { !$0.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty } }
+        guard let header = rows.first?.map({ $0.trimmingCharacters(in: .whitespaces).lowercased() }), rows.count > 1 else { return [] }
+        let body = rows.dropFirst()
+        func column(_ names: [String]) -> Int? { header.firstIndex { names.contains($0) } }
+        func cell(_ row: [String], _ i: Int?) -> String { i.flatMap { $0 < row.count ? row[$0].trimmingCharacters(in: .whitespaces) : nil } ?? "" }
+
+        guard let dateCol = column(["date", "day", "entry_date", "completed_date", "datetime"]) else { return [] }
+        let nameCol = column(["habit_name", "habit", "name", "task", "title", "habit name"])
+        let idCol = column(["habit_id"])
+        let statusCol = column(["status", "value", "state", "completed", "result", "count", "quantity"])
+        let noteCol = column(["note", "notes", "comment"])
+
+        var result: [String: Imported] = [:]
+        var order: [String] = []
+        func add(_ name: String, id: UUID?, date: String, status: String, note: String) {
+            guard let key = dayKey(date) else { return }
+            let tag = id?.uuidString ?? name.lowercased()
+            if result[tag] == nil { result[tag] = Imported(id: id, name: name); order.append(tag) }
+            if let state = state(status, defaultDone: statusCol == nil) { result[tag]!.states[key] = state }
+            if !note.isEmpty { result[tag]!.notes[key] = note }
+        }
+
+        if let nameCol {
+            // Длинный формат: строка — день одной привычки.
+            for row in body {
+                add(cell(row, nameCol), id: UUID(uuidString: cell(row, idCol)), date: cell(row, dateCol),
+                    status: cell(row, statusCol), note: cell(row, noteCol))
+            }
+        } else if header.count <= 3, statusCol != nil {
+            // Loop: файл одной привычки (Date,Value,Notes).
+            let name = habitName(fromFile: fileName)
+            for row in body { add(name, id: nil, date: cell(row, dateCol), status: cell(row, statusCol), note: cell(row, noteCol)) }
+        } else {
+            // Loop: Checkmarks.csv — столбец на привычку.
+            let names = rows.first!
+            for row in body {
+                for i in names.indices where i != dateCol && !names[i].trimmingCharacters(in: .whitespaces).isEmpty {
+                    add(names[i].trimmingCharacters(in: .whitespaces), id: nil, date: cell(row, dateCol), status: cell(row, i), note: "")
+                }
+            }
+        }
+        return order.compactMap { result[$0] }.filter { !$0.name.isEmpty || $0.id != nil }
+    }
+
+    /// Статус дня из чужих обозначений; nil — день не отмечен.
+    private static func state(_ raw: String, defaultDone: Bool) -> HabitDayState? {
+        let s = raw.lowercased()
+        if s.isEmpty { return defaultDone ? .done : nil }
+        switch s {
+        case "done", "yes", "y", "true", "x", "✓", "completed", "complete", "yes_manual", "checked": return .done
+        case "partial", "partially", "partially done": return .partial
+        case "over", "overdone": return .over
+        case "twice": return .twice
+        // YES_AUTO у Loop — день засчитан частотой, а не отмечен.
+        case "no", "n", "false", "none", "yes_auto", "skip", "unknown", "-", "missed", "failed": return nil
+        default:
+            if let number = Double(s.replacingOccurrences(of: ",", with: ".")) { return number > 0 ? .done : nil }
+            return nil
+        }
+    }
+
+    /// «yyyy-MM-dd» из распространённых форматов дат (время отбрасывается).
+    private static func dayKey(_ raw: String) -> String? {
+        let s = raw.trimmingCharacters(in: .whitespaces)
+        let formats = ["yyyy-MM-dd", "yyyy/MM/dd", "dd.MM.yyyy", "MM/dd/yyyy", "dd/MM/yyyy", "yyyyMMdd"]
+        let candidates = [String(s.prefix(10)), String(s.prefix(8)), s]
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        for format in formats {
+            f.dateFormat = format
+            for c in candidates { if let d = f.date(from: c) { return HabitDay.key(d) } }
+        }
+        return nil
+    }
+
+    /// «001 Meditate/Checkmarks.csv» → «Meditate».
+    private static func habitName(fromFile path: String) -> String {
+        let parts = path.split(separator: "/").map(String.init)
+        var name = parts.count > 1 ? parts[parts.count - 2] : (parts.last ?? "Imported")
+        if name.lowercased().hasSuffix(".csv") { name = String(name.dropLast(4)) }
+        if let range = name.range(of: #"^\d+\s+"#, options: .regularExpression) { name.removeSubrange(range) }
+        return name.isEmpty || name.lowercased() == "checkmarks" ? "Imported habit" : name
+    }
+
+    /// Строки CSV с учётом кавычек и переносов внутри них; разделитель — запятая или точка с запятой.
+    private static func csvRows(_ text: String) -> [[String]] {
+        let firstLine = text.prefix { $0 != "\n" }
+        let separator: Character = firstLine.filter { $0 == ";" }.count > firstLine.filter { $0 == "," }.count ? ";" : ","
+        var rows: [[String]] = [], row: [String] = [], field = "", quoted = false
+        var chars = Array(text.replacingOccurrences(of: "\r\n", with: "\n"))
+        if chars.first == "\u{FEFF}" { chars.removeFirst() }
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if quoted {
+                if c == "\"" {
+                    if i + 1 < chars.count, chars[i + 1] == "\"" { field.append("\""); i += 1 } else { quoted = false }
+                } else { field.append(c) }
+            } else if c == "\"" {
+                quoted = true
+            } else if c == separator {
+                row.append(field); field = ""
+            } else if c == "\n" {
+                row.append(field); rows.append(row); row = []; field = ""
+            } else {
+                field.append(c)
+            }
+            i += 1
+        }
+        if !field.isEmpty || !row.isEmpty { row.append(field); rows.append(row) }
+        return rows
     }
 }
 

@@ -37,7 +37,13 @@ enum AlertScheduler {
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(idPrefix) }
         center.removePendingNotificationRequests(withIdentifiers: pending)
         guard CalendarSettings.alertsEnabled else { return }
-        let requests = upcomingAlerts(now: now).prefix(limit).map(\.request)
+        let all = alerts(now: now)
+        let future = all.filter { $0.fireDate > now }
+        await notifyMovedIntoPast(all, now: now)
+        // Запоминаем ещё не сработавшие alert — по ним видно, что событие потом перенесли раньше.
+        AppGroup.defaults.set(Dictionary(future.map { ($0.key, $0.fireDate.timeIntervalSinceReferenceDate) }, uniquingKeysWith: min),
+                              forKey: pendingKey)
+        let requests = future.prefix(limit).map(\.request)
         for request in requests {
             do { try await center.add(request) } catch {
                 SyncIssues.report("Couldn't schedule event notifications: \(error.localizedDescription)", once: true)
@@ -89,9 +95,31 @@ enum AlertScheduler {
     private struct Alert {
         let fireDate: Date
         let request: UNNotificationRequest
+        /// Событие и номер alert — не меняются при переносе события.
+        let key: String
     }
 
-    private static func upcomingAlerts(now: Date) -> [Alert] {
+    /// Ещё не сработавшие alert с прошлой синхронизации: «событие|номер» → время.
+    private static let pendingKey = "pendingAlertFires"
+
+    /// Событие с alert перенесли раньше так, что время alert уже прошло, а уведомления не было:
+    /// присылаем его сразу (если так настроено). Alert, сработавший сам в своё время, сюда не
+    /// попадает: его прежнее время уже тоже в прошлом.
+    private static func notifyMovedIntoPast(_ alerts: [Alert], now: Date) async {
+        guard CalendarSettings.notifyMovedIntoPast,
+              let stored = AppGroup.defaults.dictionary(forKey: pendingKey) as? [String: Double] else { return }
+        let center = UNUserNotificationCenter.current()
+        let delivered = Set(await center.deliveredNotifications().map(\.request.identifier))
+        for alert in alerts where alert.fireDate <= now {
+            guard let was = stored[alert.key].map(Date.init(timeIntervalSinceReferenceDate:)), was > now, alert.fireDate < was else { continue }
+            let id = alert.request.identifier + "|moved"
+            guard !delivered.contains(id) else { continue }
+            try? await center.add(UNNotificationRequest(identifier: id, content: alert.request.content, trigger: nil))
+        }
+    }
+
+    /// Alert событий от суток назад до `alertDaysAhead` вперёд (и прошедшие — для переносов).
+    private static func alerts(now: Date) -> [Alert] {
         let store = EKEventStore()
         let end = Calendar.current.date(byAdding: .day, value: CalendarSettings.alertDaysAhead, to: now)!
         // Захватываем и начавшиеся раньше события: их alert мог быть задан после начала.
@@ -103,8 +131,9 @@ enum AlertScheduler {
         for event in events {
             for (index, alarm) in (event.alarms ?? []).enumerated() {
                 let fire = alarm.absoluteDate ?? event.startDate.addingTimeInterval(alarm.relativeOffset)
-                guard fire > now, fire < end else { continue }
-                alerts.append(Alert(fireDate: fire, request: request(for: event, alarmIndex: index, fire: fire)))
+                guard fire > start, fire < end else { continue }
+                alerts.append(Alert(fireDate: fire, request: request(for: event, alarmIndex: index, fire: fire),
+                                    key: "\(event.eventIdentifier ?? "")|\(index)"))
             }
         }
         return alerts.sorted { $0.fireDate < $1.fireDate }
@@ -159,10 +188,10 @@ enum AlertScheduler {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
-    /// Calendar на дне и времени события, к которому относилось уведомление.
+    /// Calendar открывается на час раньше события — оно видно не у самого верха.
     static func calendarURL(userInfo: [AnyHashable: Any]) -> URL? {
         guard let start = userInfo["start"] as? Double else { return nil }
-        return URL(string: "calshow:\(Int(start))")
+        return URL(string: "calshow:\(Int(start - 3600))")
     }
 }
 

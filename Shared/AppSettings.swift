@@ -46,17 +46,20 @@ enum CalendarSettings {
     enum Key {
         static let alertsEnabled = "alertsEnabled"
         static let keepAfterTap = "keepNotificationAfterTap"
+        static let keepAfterSwipe = "keepNotificationAfterSwipe"
+        static let notifyMovedIntoPast = "notifyWhenAlertMovedIntoPast"
         static let removeWhenMovedLater = "removeNotificationWhenMovedLater"
         static let removeWhenDeleted = "removeNotificationWhenDeleted"
         static let staleLabelMinutes = "staleLabelMinutes"
         static let cursorHex = "cursorHex"
         static let cursorOverEventOpacity = "cursorOverEventOpacity"
-        static let notificationTapOpensEvent = "notificationTapOpensEvent"
+        static let bellOpacityLight = "bellOpacityLight"
+        static let bellOpacityDark = "bellOpacityDark"
         static let defaultDayStart = "defaultDayStart"
         static let defaultDayEnd = "defaultDayEnd"
     }
 
-    static let defaultCursorHex = "#EA4A45"
+    static let defaultCursorHex = "#D02D1E"
     /// Прежний цвет по умолчанию: если он сохранён, значит его не выбирали — берём новый.
     private static let oldDefaultCursorHex = "#E9534CFF"
 
@@ -74,6 +77,10 @@ enum CalendarSettings {
     static let alertDaysAhead = 10
     /// После нажатия класть уведомление обратно в список.
     static var keepAfterTap: Bool { bool(Key.keepAfterTap, true) }
+    /// После смахивания класть уведомление обратно в список.
+    static var keepAfterSwipe: Bool { bool(Key.keepAfterSwipe, true) }
+    /// Событие перенесли раньше и время его alert уже прошло — прислать уведомление сразу.
+    static var notifyMovedIntoPast: Bool { bool(Key.notifyMovedIntoPast, true) }
     static var removeWhenMovedLater: Bool { bool(Key.removeWhenMovedLater, true) }
     static var removeWhenDeleted: Bool { bool(Key.removeWhenDeleted, true) }
     /// С какой давности данных показывать подпись «N min ago».
@@ -85,11 +92,14 @@ enum CalendarSettings {
         return Color(hex: String(hex.trimmingCharacters(in: .whitespaces).prefix(7))) ?? .red
     }
     /// Непрозрачность части курсора над событиями.
+    /// Непрозрачность колокольчика (цвет календаря) у событий с alert — в светлой и тёмной теме.
+    static func bellOpacity(dark: Bool) -> Double {
+        let key = dark ? Key.bellOpacityDark : Key.bellOpacityLight
+        return d.object(forKey: key) == nil ? (dark ? 0.7 : 0.5) : d.double(forKey: key)
+    }
     static var cursorOverEventOpacity: Double {
         d.object(forKey: Key.cursorOverEventOpacity) == nil ? 0.7 : d.double(forKey: Key.cursorOverEventOpacity)
     }
-    /// Нажатие на уведомление открывает карточку события в приложении (иначе — Calendar).
-    static var notificationTapOpensEvent: Bool { bool(Key.notificationTapOpensEvent, false) }
     /// Интервал дня для календарных виджетов, у которых в настройках стоит «Default».
     static var defaultDayStart: Int { int(Key.defaultDayStart, 6) }
     static var defaultDayEnd: Int { int(Key.defaultDayEnd, 24) }
@@ -116,6 +126,9 @@ enum HabitSettings {
         static let overIconDarker = "habitOverIconDarker"
         static let overIconDarkness = "habitOverIconDarkness"
         static let gridBottomMargin = "habitGridBottomMargin"
+        static let missedHex = "habitMissedHex"
+        static let missedOpacity = "habitMissedOpacity"
+        static let missedLinkOpacity = "habitMissedLinkOpacity"
         static let twicePattern = "habitTwicePattern"
         static let twiceSymbol = "habitTwiceSymbol"
         static let twiceIconScale = "habitTwiceIconScale"
@@ -165,7 +178,10 @@ enum HabitSettings {
                    twiceIconScale: double(Key.twiceIconScale, 0.65),
                    twiceInnerSize: double(Key.twiceInnerSize, 0.55),
                    twiceDarker: d.object(forKey: Key.twiceDarker) == nil ? true : d.bool(forKey: Key.twiceDarker),
-                   twiceDarkness: double(Key.twiceDarkness, 0.65))
+                   twiceDarkness: double(Key.twiceDarkness, 0.65),
+                   missedHex: d.string(forKey: Key.missedHex) ?? HabitStyle.defaultMissedHex,
+                   missedOpacity: double(Key.missedOpacity, 0.25),
+                   missedLinkOpacity: double(Key.missedLinkOpacity, 0.15))
     }
 }
 
@@ -220,6 +236,17 @@ struct HabitStyle {
     /// Отметка «дважды» темнее дня (смесь с чёрным), а не светлее.
     var twiceDarker = true
     var twiceDarkness = 0.65
+    /// Пропуски сверх допустимого: цвет (без прозрачности) и прозрачность дней и перемычек
+    /// между соседними пропусками в неделе.
+    var missedHex = HabitStyle.defaultMissedHex
+    var missedOpacity = 0.25
+    var missedLinkOpacity = 0.15
+    static let defaultMissedHex = "#FF0000"
+
+    /// Цвет пропусков: свой у привычки или общий (прозрачность из hex не берётся).
+    func missedColor(_ own: String?) -> Color {
+        Color(hex: String((own ?? missedHex).trimmingCharacters(in: .whitespaces).prefix(7))) ?? .red
+    }
 }
 
 

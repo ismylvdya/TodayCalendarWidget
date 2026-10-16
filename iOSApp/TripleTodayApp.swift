@@ -30,11 +30,39 @@ struct TripleTodayApp: App {
 @MainActor
 final class AppRouter: ObservableObject {
     static let shared = AppRouter()
-    struct EventRef: Identifiable { let id: String; let start: Date }
-    @Published var event: EventRef?
     @Published var habit: UUID?
     /// Ошибка синхронизации или удаления — показывается алертом.
     @Published var issue: String?
+    /// Плашка сверху: итог действия (слияние, удаление, импорт…).
+    @Published var toast: Toast?
+}
+
+/// Плашка об успехе или ошибке действия — сверху экрана, исчезает сама.
+struct Toast: Equatable {
+    let id = UUID()
+    let text: String
+    let isError: Bool
+
+    @MainActor static func show(_ text: String, error: Bool = false) {
+        withAnimation(.spring(duration: 0.35)) { AppRouter.shared.toast = Toast(text: text, isError: error) }
+    }
+}
+
+struct ToastView: View {
+    let toast: Toast
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: toast.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(toast.isError ? .orange : .green)
+            Text(toast.text).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        .padding(.horizontal, 24)
+    }
 }
 
 struct RootView: View {
@@ -44,6 +72,17 @@ struct RootView: View {
 
     var body: some View {
         MainView(openHabit: router.habit)
+            .overlay(alignment: .top) {
+                if let toast = router.toast {
+                    ToastView(toast: toast)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .onTapGesture { withAnimation { router.toast = nil } }
+                        .task(id: toast.id) {
+                            try? await Task.sleep(for: .seconds(toast.isError ? 4 : 2.5))
+                            if router.toast?.id == toast.id { withAnimation { router.toast = nil } }
+                        }
+                }
+            }
             .alert("Something Went Wrong", isPresented: Binding(get: { router.issue != nil }, set: { if !$0 { router.issue = nil } })) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -55,7 +94,6 @@ struct RootView: View {
                 if url.scheme == "calshow" { UIApplication.shared.open(url) }
                 if url.host == "habit", let id = UUID(uuidString: url.lastPathComponent) { router.habit = id }
             }
-            .sheet(item: $router.event) { EventCard(ref: $0) }
             .task {
                 if EKEventStore.authorizationStatus(for: .event) == .notDetermined {
                     _ = try? await store.requestFullAccessToEvents()
@@ -93,22 +131,6 @@ struct RootView: View {
     }
 }
 
-/// Системная карточка события (как в Calendar) — по нажатию на уведомление, если так настроено.
-struct EventCard: UIViewControllerRepresentable {
-    let ref: AppRouter.EventRef
-
-    func makeUIViewController(context: Context) -> UINavigationController {
-        let store = EKEventStore()
-        let window = store.predicateForEvents(withStart: ref.start.addingTimeInterval(-60), end: ref.start.addingTimeInterval(60), calendars: nil)
-        let controller = EKEventViewController()
-        controller.event = store.events(matching: window).first { $0.eventIdentifier == ref.id } ?? store.event(withIdentifier: ref.id)
-        controller.allowsEditing = true
-        return UINavigationController(rootViewController: controller)
-    }
-
-    func updateUIViewController(_ controller: UINavigationController, context: Context) {}
-}
-
 /// Принимает действия из уведомлений, в том числе когда iOS запускает приложение в фоне.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
@@ -129,18 +151,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         let info = response.notification.request.content.userInfo
         switch response.actionIdentifier {
         case UNNotificationDismissActionIdentifier:
-            // Смахнули — возвращаем (тихо).
-            await AlertScheduler.keepAfterOpening(response.notification)
+            // Смахнули — возвращаем (тихо), если так настроено.
+            if CalendarSettings.keepAfterSwipe { await AlertScheduler.keepAfterOpening(response.notification) }
         case AlertScheduler.deleteAction:
             AlertScheduler.deleteEvent(userInfo: info)
         case UNNotificationDefaultActionIdentifier:
             if CalendarSettings.keepAfterTap { await AlertScheduler.keepAfterOpening(response.notification) }
-            if CalendarSettings.notificationTapOpensEvent,
-               let id = info["eventID"] as? String, let start = info["start"] as? Double {
-                await MainActor.run { AppRouter.shared.event = .init(id: id, start: Date(timeIntervalSinceReferenceDate: start)) }
-            } else if let url = AlertScheduler.calendarURL(userInfo: info) {
-                await UIApplication.shared.open(url)
-            }
+            // Всегда Calendar — на дне события, за час до него.
+            if let url = AlertScheduler.calendarURL(userInfo: info) { await UIApplication.shared.open(url) }
         default:
             break
         }

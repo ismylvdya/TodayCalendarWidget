@@ -54,7 +54,7 @@ enum ReminderSync {
                 let link = db.habits[i].links[j]
                 guard let reminder = store.calendarItem(withIdentifier: link.reminderID) as? EKReminder else {
                     // Сообщаем только о текущей привязке активной привычки (прежние могли удалить намеренно).
-                    if j == db.habits[i].links.indices.last, !db.habits[i].archived { SyncIssues.report("The reminder “\(link.titles.last ?? "")” linked to “\(db.habits[i].title)” was not found in Reminders — it may have been deleted.", once: true) }
+                    if j == db.habits[i].links.indices.last, !db.habits[i].archived, !db.habits[i].isTrashed { SyncIssues.report("The reminder “\(link.titles.last ?? "")” linked to “\(db.habits[i].title)” was not found in Reminders — it may have been deleted.", once: true) }
                     continue
                 }
                 if let title = reminder.title, !link.titles.contains(title) { db.habits[i].links[j].titles.append(title) }
