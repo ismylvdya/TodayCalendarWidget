@@ -3,7 +3,7 @@
   "identifier": "com.chumbulev.TripleToday.source",
   "subtitle": "Habit tracker on top of Reminders and calendar widgets",
   "website": "https://github.com/ismylvdya/TodayCalendarWidget",
-  "iconURL": "https://raw.githubusercontent.com/ismylvdya/TodayCalendarWidget/main/Icons/icon-ios.png",
+  "iconURL": "https://raw.githubusercontent.com/ismylvdya/TodayCalendarWidget/main/Icons/icon-ios.png?v=2",
   "apps": [
     {
       "name": "Habits on Reminders",
@@ -11,7 +11,7 @@
       "developerName": "ismylvdya",
       "subtitle": "Habits on Reminders & Calendar Enhancer",
       "localizedDescription": "Habit tracker that takes completions from Reminders, with habit grid and goal widgets, plus calendar widgets and alert notifications for calendar events.",
-      "iconURL": "https://raw.githubusercontent.com/ismylvdya/TodayCalendarWidget/main/Icons/icon-ios.png",
+      "iconURL": "https://raw.githubusercontent.com/ismylvdya/TodayCalendarWidget/main/Icons/icon-ios.png?v=2",
       "tintColor": "#3478F6",
       "versions": [
         {
