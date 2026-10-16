@@ -154,6 +154,16 @@ struct MainView: View {
                     NavigationLink(value: Route.calendarSettings) { PlainLabel("Calendar Enhancer Settings", systemImage: "gear") }
                 } header: {
                     RoundedHeader("Calendar")
+                } footer: {
+                    // Внизу главной — версия со сборкой и подпись.
+                    VStack(spacing: 2) {
+                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
+                        Text("Vibecoded by chumbulev")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 24)
                 }
             }
             // Потянуть вниз — на любой странице одинаково: база, Reminders, виджеты, уведомления.
@@ -1344,12 +1354,15 @@ struct HabitSettingsView: View {
     @AppStorage(HabitSettings.Key.partialIconScale, store: AppGroup.defaults) private var partialIconScale = 0.65
     @AppStorage(HabitSettings.Key.overIconScale, store: AppGroup.defaults) private var overIconScale = 0.65
     @AppStorage(HabitSettings.Key.overIconDarker, store: AppGroup.defaults) private var overDarker = true
-    @AppStorage(HabitSettings.Key.overIconDarkness, store: AppGroup.defaults) private var overDarkness = 0.65
+    @AppStorage(HabitSettings.Key.overIconDarkness, store: AppGroup.defaults) private var overDarkness = 0.6
     @AppStorage(HabitSettings.Key.gridBottomMargin, store: AppGroup.defaults) private var gridBottomMargin = 1.0
     @AppStorage(HabitSettings.Key.missedHex, store: AppGroup.defaults) private var missedHex = HabitStyle.defaultMissedHex
     @AppStorage(HabitSettings.Key.missedOpacity, store: AppGroup.defaults) private var missedOpacity = 0.25
     @AppStorage(HabitSettings.Key.missedLinkOpacity, store: AppGroup.defaults) private var missedLinkOpacity = 0.1
-    @State private var picking: Picking?
+    /// Что выбирают — отдельно от показа окна: закрываясь, окно сбрасывает показ раньше,
+    /// чем приходит результат, и выбор терялся (ничего не происходило).
+    @State private var picking = Picking.csv
+    @State private var pickerShown = false
     @State private var backupFolder = FilesBackup.chosenFolder?.lastPathComponent
     @State private var pendingRestore: HabitDB?
     @AppStorage(HabitSettings.Key.twicePattern, store: AppGroup.defaults) private var twicePattern = TwicePattern.innerSquare.rawValue
@@ -1357,7 +1370,7 @@ struct HabitSettingsView: View {
     @AppStorage(HabitSettings.Key.twiceIconScale, store: AppGroup.defaults) private var twiceIconScale = 0.65
     @AppStorage(HabitSettings.Key.twiceInnerSize, store: AppGroup.defaults) private var twiceInnerSize = 0.55
     @AppStorage(HabitSettings.Key.twiceDarker, store: AppGroup.defaults) private var twiceDarker = true
-    @AppStorage(HabitSettings.Key.twiceDarkness, store: AppGroup.defaults) private var twiceDarkness = 0.65
+    @AppStorage(HabitSettings.Key.twiceDarkness, store: AppGroup.defaults) private var twiceDarkness = 0.55
     @State private var hasAccess = ReminderSync.hasAccess
 
     private var previewStyle: HabitStyle {
@@ -1556,7 +1569,7 @@ struct HabitSettingsView: View {
                     InfoButton(text: "CSV, one row per marked day or day with a note:\n• habit_id — the habit's permanent ID (kept after relinking reminders);\n• habit_name;\n• date — yyyy-MM-dd;\n• status — done, partial, over, twice, or none (only a note);\n• note.", tint: .accentColor)
                 }
                 HStack {
-                    Button { picking = .csv } label: { Label("Import CSV…", systemImage: "square.and.arrow.down") }
+                    Button { picking = .csv; pickerShown = true } label: { Label("Import CSV…", systemImage: "square.and.arrow.down") }
                     Spacer()
                     InfoButton(text: "Reads:\n• this app's CSV (habit_id, habit_name, date, status, note);\n• Loop Habit Tracker: Checkmarks.csv (Date, then a column per habit; YES_MANUAL counts as done, YES_AUTO / NO / SKIP / UNKNOWN as not marked) or one habit's Checkmarks.csv (Date, Value, Notes — the habit is named after its folder);\n• any CSV with a date column (date, day…) and a habit name column (habit, name, task…), optionally a status (done / yes / true / 1, partial, over, twice; no / false / 0 = not marked) and a note.\n\nHabits are matched by ID, then by name; others are created. Days already marked and existing notes are kept. Dates: yyyy-MM-dd, dd.MM.yyyy, MM/dd/yyyy and similar.", tint: .accentColor)
                 }
@@ -1567,7 +1580,7 @@ struct HabitSettingsView: View {
             }
 
             Section {
-                Button { picking = .folder } label: {
+                Button { picking = .folder; pickerShown = true } label: {
                     HStack {
                         Label("Backup Folder", systemImage: "folder")
                         Spacer()
@@ -1579,7 +1592,7 @@ struct HabitSettingsView: View {
                         Label("Stop Backing Up to This Folder", systemImage: "folder.badge.minus")
                     }
                 }
-                Button { picking = .backup } label: { Label("Restore from Backup…", systemImage: "clock.arrow.circlepath") }
+                Button { picking = .backup; pickerShown = true } label: { Label("Restore from Backup…", systemImage: "clock.arrow.circlepath") }
                     .confirmationDialog("Replace all habits with this backup?", isPresented: Binding(get: { pendingRestore != nil }, set: { if !$0 { pendingRestore = nil } }),
                                         titleVisibility: .visible) {
                         Button("Restore \(pendingRestore?.habits.count ?? 0) Habits", role: .destructive) {
@@ -1597,11 +1610,13 @@ struct HabitSettingsView: View {
                 }
             }
         }
-        .fileImporter(isPresented: Binding(get: { picking != nil }, set: { if !$0 { picking = nil } }),
+        .fileImporter(isPresented: $pickerShown,
                       allowedContentTypes: picking == .folder ? [.folder] : picking == .backup ? [.json] : [.commaSeparatedText, .plainText, .text]) { result in
             let mode = picking
-            picking = nil
-            guard case .success(let url) = result else { return }
+            guard case .success(let url) = result else {
+                if case .failure(let error) = result { Toast.show("Couldn't open: \(error.localizedDescription)", error: true) }
+                return
+            }
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             switch mode {
@@ -1624,7 +1639,6 @@ struct HabitSettingsView: View {
                     let result = store.importCSV(imported)
                     Toast.show("Imported \(result.days) days into \(imported.count) habits (\(result.habits) new)")
                 }
-            case nil: break
             }
         }
         .navigationBarTitleDisplayMode(.inline)

@@ -313,6 +313,7 @@ struct ColumnView: View {
     private let overshoot: CGFloat = 7
 
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.displayScale) private var scale
 
     /// Цифры часов и линии сетки: в полноцветной тёмной теме — цвета системного Calendar,
     /// в остальных случаях — системные полутона (в монохроме их перекрашивает система).
@@ -329,6 +330,19 @@ struct ColumnView: View {
             let span = to.timeIntervalSince(from)
             let y: (Date) -> CGFloat = { top + CGFloat($0.timeIntervalSince(from) / span) * height }
             let eventsWidth = geo.size.width - gutter
+            // Всё — по целым пикселям экрана: иначе линия часа и край события округлялись
+            // по-разному, и событие, начинающееся ровно в час, залезало на линию.
+            let px = 1 / scale
+            let snap: (CGFloat) -> CGFloat = { ($0 * scale).rounded() / scale }
+            // Линия — прежние 0.5 pt; плашки отступают от пикселей, которые она задевает.
+            let lineHeight = max(1, (0.5 * scale).rounded(.up)) / scale
+            // Верх и высота плашки: ровно на 1 px ниже линии своего начала и на 1 px выше линии
+            // конца (как если бы там была линия часа). Перенесённое событие выходит за край колонки.
+            let vertical: (PlacedEvent) -> (top: CGFloat, height: CGFloat) = { p in
+                let top = p.continuesBefore ? snap(y(p.start) - overshoot) : snap(y(p.start)) + lineHeight + px
+                let bottom = p.continuesAfter ? snap(y(p.end) + overshoot) : snap(y(p.end)) - px
+                return (top, max(bottom - top, px))
+            }
 
             ZStack(alignment: .topLeading) {
                 // Часовая сетка
@@ -342,7 +356,7 @@ struct ColumnView: View {
                     Rectangle()
                         .fill(gridStyle)
                         .frame(width: eventsWidth, height: 0.5)
-                        .offset(x: gutter, y: yy)
+                        .offset(x: gutter, y: snap(yy))
                 }
 
                 // События
@@ -351,14 +365,12 @@ struct ColumnView: View {
                     let laneWidth = eventsWidth / CGFloat(p.lanes)
                     // Перенесённое событие выходит за границу колонки до края цифр часа,
                     // чтобы затухание заканчивалось (начиналось) на уровне подписи.
-                    let y0 = y(p.start) - (p.continuesBefore ? overshoot : 0)
-                    let y1 = y(p.end) + (p.continuesAfter ? overshoot : -1)
-                    let h = max(y1 - y0, 13)
+                    let (y0, h) = vertical(p)
                     EventBlock(event: p.event, height: h, dimmed: entry.config.isDimmed(p.event, now: entry.date),
                                inverted: isInverted(p.event, entry.config, mode),
                                continuesBefore: p.continuesBefore, continuesAfter: p.continuesAfter, mode: mode)
                         .frame(width: laneWidth - 2, height: h)
-                        .offset(x: gutter + CGFloat(p.lane) * laneWidth, y: y0 + 0.5)
+                        .offset(x: gutter + CGFloat(p.lane) * laneWidth, y: y0)
                 }
 
                 // Курсор текущего момента
@@ -368,11 +380,10 @@ struct ColumnView: View {
                     // (с их скруглениями), в координатах курсора.
                     let origin = CGPoint(x: cursorX - cursorDot / 2, y: yy - cursorDot / 2)
                     let covered: [(rect: CGRect, top: CGFloat, bottom: CGFloat)] = placed.compactMap { p in
-                        let y0 = y(p.start) - (p.continuesBefore ? overshoot : 0)
-                        let h = max(y(p.end) + (p.continuesAfter ? overshoot : -1) - y0, 13)
+                        let (y0, h) = vertical(p)
                         guard yy + cursorDot / 2 >= y0, yy - cursorDot / 2 <= y0 + h else { return nil }
                         let laneWidth = eventsWidth / CGFloat(p.lanes)
-                        let rect = CGRect(x: gutter + CGFloat(p.lane) * laneWidth - origin.x, y: y0 + 0.5 - origin.y,
+                        let rect = CGRect(x: gutter + CGFloat(p.lane) * laneWidth - origin.x, y: y0 - origin.y,
                                           width: laneWidth - 2, height: h)
                         return (rect, p.continuesBefore ? 0 : 5, p.continuesAfter ? 0 : 5)
                     }
@@ -454,10 +465,14 @@ struct EventBlock: View {
         let top: CGFloat = continuesBefore ? 0 : 5, bottom: CGFloat = continuesAfter ? 0 : 5
         let shape = UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom,
                                            bottomTrailingRadius: bottom, topTrailingRadius: top)
+        // Короткая плашка не растягивается: шрифт уменьшается до того, что помещается по высоте.
+        let pad: CGFloat = height >= 19 ? 3 : 1
+        let fontSize = min(11, max(4, (height - 2 * pad) / 1.2))
+        let stripeInset = min(3, height / 4)
         HStack(alignment: .top, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 Text(event.title)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: fontSize, weight: .semibold))
                     .foregroundStyle(eventTextStyle(color, mode, scheme))
                     .lineLimit(height > 30 ? 2 : 1)
                 // На месте прежнего времени начала — колокольчик, если у события есть alert.
@@ -476,7 +491,8 @@ struct EventBlock: View {
             .padding(.top, height > 16 ? 2 : 0)
             Spacer(minLength: 0)
         }
-        .padding(3)
+        .padding(.horizontal, 3)
+        .padding(.vertical, pad)
         .padding(.leading, 7)
         .frame(maxHeight: .infinity, alignment: .top)
         .overlay(alignment: .leading) {
@@ -485,8 +501,8 @@ struct EventBlock: View {
                 .fill(color)
                 .frame(width: 3)
                 .padding(.leading, 3)
-                .padding(.top, continuesBefore ? 0 : 3)
-                .padding(.bottom, continuesAfter ? 0 : 3)
+                .padding(.top, continuesBefore ? 0 : stripeInset)
+                .padding(.bottom, continuesAfter ? 0 : stripeInset)
                 .mask(FadeMask(top: continuesBefore, bottom: continuesAfter))
                 .widgetAccentable()
         }

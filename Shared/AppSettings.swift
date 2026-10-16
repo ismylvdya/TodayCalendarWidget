@@ -172,13 +172,13 @@ enum HabitSettings {
                    partialIconScale: double(Key.partialIconScale, 0.65),
                    overIconScale: double(Key.overIconScale, 0.65),
                    overIconDarker: d.object(forKey: Key.overIconDarker) == nil ? true : d.bool(forKey: Key.overIconDarker),
-                   overIconDarkness: double(Key.overIconDarkness, 0.65),
+                   overIconDarkness: double(Key.overIconDarkness, 0.6),
                    twicePattern: TwicePattern(rawValue: d.string(forKey: Key.twicePattern) ?? "") ?? .innerSquare,
                    twiceSymbol: symbol(Key.twiceSymbol, "2.circle.fill"),
                    twiceIconScale: double(Key.twiceIconScale, 0.65),
                    twiceInnerSize: double(Key.twiceInnerSize, 0.55),
                    twiceDarker: d.object(forKey: Key.twiceDarker) == nil ? true : d.bool(forKey: Key.twiceDarker),
-                   twiceDarkness: double(Key.twiceDarkness, 0.65),
+                   twiceDarkness: double(Key.twiceDarkness, 0.55),
                    missedHex: d.string(forKey: Key.missedHex) ?? HabitStyle.defaultMissedHex,
                    missedOpacity: double(Key.missedOpacity, 0.25),
                    missedLinkOpacity: double(Key.missedLinkOpacity, 0.15))
@@ -227,7 +227,7 @@ struct HabitStyle {
     var overIconScale = 0.65
     /// Иконка перевыполнения темнее клетки (смесь цвета привычки с чёрным), а не светлее.
     var overIconDarker = true
-    var overIconDarkness = 0.65
+    var overIconDarkness = 0.6
     var twicePattern = TwicePattern.innerSquare
     var twiceSymbol = "2.circle.fill"
     var twiceIconScale = 0.65
@@ -235,7 +235,7 @@ struct HabitStyle {
     var twiceInnerSize = 0.55
     /// Отметка «дважды» темнее дня (смесь с чёрным), а не светлее.
     var twiceDarker = true
-    var twiceDarkness = 0.65
+    var twiceDarkness = 0.55
     /// Пропуски сверх допустимого: цвет (без прозрачности) и прозрачность дней и перемычек
     /// между соседними пропусками в неделе.
     var missedHex = HabitStyle.defaultMissedHex
