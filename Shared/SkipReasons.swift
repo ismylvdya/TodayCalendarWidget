@@ -1,8 +1,4 @@
 import Foundation
-#if os(iOS)
-import UIKit
-import UserNotifications
-#endif
 
 /// Почему день не сделан. Виды — из Tiny Habits (BJ Fogg): поведение = мотивация + способность +
 /// подсказка; если привычка не случается, ищут, чего не хватило, — подсказки, способности или
@@ -11,6 +7,17 @@ import UserNotifications
 enum SkipKind: String, Codable, CaseIterable, Identifiable {
     case prompt, ability, motivation, excused, other
     var id: String { rawValue }
+
+    /// Короткое название — в строке причины в настройках.
+    var shortTitle: String {
+        switch self {
+        case .prompt: "Prompt"
+        case .ability: "Ability"
+        case .motivation: "Motivation"
+        case .excused: "Excused"
+        case .other: "Other"
+        }
+    }
 
     var title: String {
         switch self {
@@ -22,13 +29,40 @@ enum SkipKind: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// Совет в уведомлении о повторяющейся причине.
-    var tip: String {
+    /// Что не так — первая строка плашки долгого пропуска (что поменять — в `ways`).
+    var diagnosis: String {
         switch self {
-        case .prompt: "The habit has no reliable cue. Tie it to something you already do every day: “After I …, I will …”."
-        case .ability: "The habit is too hard right now. Shrink it to a two-minute version or move it to an easier time."
-        case .motivation: "Make it more attractive — pair it with something you enjoy — or ask whether this habit still matters to you."
-        case .excused, .other: "The same thing keeps getting in the way — change the habit's time, size or cue instead of pushing harder."
+        case .prompt: "Nothing reminds you at the right moment: the habit has no reliable cue."
+        case .ability: "The habit is too hard or too long for you right now."
+        case .motivation: "Right now you don't want it enough."
+        case .excused, .other: "The same thing keeps getting in the way."
+        }
+    }
+}
+
+extension SkipKind {
+    /// Что можно поменять — список на плашке долгого пропуска.
+    var ways: [String] {
+        switch self {
+        case .prompt: [
+            "Anchor it to a daily routine: “After I …, I will …”.",
+            "Leave a visible cue where you'll see it at the right moment.",
+            "Set a reminder for the moment you usually do it.",
+        ]
+        case .ability: [
+            "Shrink it to a two-minute version and grow it later.",
+            "Move it to a time when you have more energy.",
+            "Prepare everything in advance to remove the first obstacle.",
+        ]
+        case .motivation: [
+            "Pair it with something you enjoy.",
+            "Make the first step tiny and celebrate right after it.",
+            "Ask whether this habit still matters — archive it if not.",
+        ]
+        case .excused, .other: [
+            "Change the habit's time, size or cue.",
+            "Look at what these days had in common and remove that obstacle.",
+        ]
         }
     }
 }
@@ -75,13 +109,15 @@ extension Habit {
 
     mutating func setReason(_ reason: UUID?, day: Date) { skipReasons[HabitDay.key(day)] = reason }
 
-    /// Несделанный прошедший день хорошей привычки без причины — на нём значок вопроса.
-    /// Не спрашиваем о днях до появления причин в приложении, до создания привычки
-    /// и о неделях, где цель на неделю уже выполнена.
-    func needsReason(_ day: Date, today: Date = HabitDay.today()) -> Bool {
-        guard HabitSettings.askWhyNotDone, !harmful, day < today, state(day) == .none, reason(day) == nil,
-              day >= HabitSettings.reasonsSince, day >= Calendar.current.startOfDay(for: createdAt) else { return false }
-        return weeklyGoal == 0 || doneInWeek(of: day) < weeklyGoal
+    /// Первый отмеченный день («yyyy-MM-dd» сортируются как даты).
+    var firstMarkedDay: Date? { completions.min().flatMap(HabitDay.date) }
+
+    /// Несделанный прошедший день (не сегодня) без причины после первой отметки — на нём
+    /// знак вопроса. Только если у привычки включено «Why Not Done» и она не вредная.
+    func needsReason(_ day: Date, today: Date = HabitDay.today(), firstMarked: Date? = nil) -> Bool {
+        guard asksWhyNotDone, !harmful, day < today, state(day) == .none, reason(day) == nil,
+              let first = firstMarked ?? firstMarkedDay else { return false }
+        return day > first
     }
 
     /// Сколько несделанных дней подряд, заканчивая `day`, — с одной и той же причиной.
@@ -96,63 +132,39 @@ extension Habit {
     }
 }
 
-#if os(iOS)
-/// Уведомление: одна причина несколько дней подряд — пора менять привычку, а не себя.
-enum SkipPatternAlert {
-    /// Начало заголовка — сразу видно, что это о долгом пропуске.
-    private static let titlePrefix = "「Long Gap」:  "
+/// Долгий пропуск: последние несделанные дни подряд — с одной неуважительной причиной.
+/// Привычка помечается восклицательным знаком, на её странице — плашка с советом.
+struct LongGap: Equatable {
+    let reason: SkipReason
+    let days: Int
+    /// Первый день серии: по нему помним, что плашку закрыли.
+    let start: String
+}
 
-    /// Уведомление на серию шлём один раз: помним её первый день.
-    private static func sentKey(_ habit: Habit, _ reason: UUID) -> String { "skipAlert|\(habit.id)|\(reason)" }
-
-    static func checkAfterSetting(_ habit: Habit, day: Date, reasons: [SkipReason]) {
+extension Habit {
+    /// Долгий пропуск, если он идёт сейчас: после него привычку ни разу не сделали.
+    /// Дни без причины в конце (например, сегодня ещё не подписано) серию не прерывают.
+    func longGap(reasons: [SkipReason], today: Date = HabitDay.today()) -> LongGap? {
         let need = HabitSettings.reasonAlertDays
-        guard need > 0, let id = habit.reason(day), let reason = reasons.first(where: { $0.id == id }),
-              reason.kind != .excused else { return }
-        let streak = habit.reasonStreak(endingAt: day)
-        guard streak >= need else { return }
-        // Первый день серии — конец серии может сдвигаться, начало у неё одно.
-        let start = HabitDay.key(Calendar.current.date(byAdding: .day, value: -(streak - 1), to: day)!)
-        let key = sentKey(habit, id)
-        guard AppGroup.defaults.string(forKey: key) != start else { return }
-        AppGroup.defaults.set(start, forKey: key)
-
-        post(title: titlePrefix + "\(habit.title): “\(reason.title)” \(streak) days in a row", body: reason.kind.tip,
-             rgb: habit.rgb, habitID: habit.id, id: "skip|\(habit.id)|\(start)")
-    }
-
-    /// Уведомление с картинкой справа: знак вопроса в цвете привычки.
-    static func post(title: String, body: String, rgb: [Double], habitID: UUID?, id: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-        if let habitID { content.userInfo = ["habitID": habitID.uuidString] }
-        if let url = questionImage(rgb: rgb), let attachment = try? UNNotificationAttachment(identifier: "image", url: url) {
-            content.attachments = [attachment]
+        guard asksWhyNotDone, need > 0 else { return nil }
+        let cal = Calendar.current
+        var day = today
+        for _ in 0..<370 {
+            guard state(day) == .none else { return nil }
+            if let id = reason(day) {
+                guard let reason = reasons.first(where: { $0.id == id }), reason.kind != .excused else { return nil }
+                let streak = reasonStreak(endingAt: day)
+                guard streak >= need else { return nil }
+                let start = HabitDay.key(cal.date(byAdding: .day, value: -(streak - 1), to: day)!)
+                guard AppGroup.defaults.string(forKey: LongGap.dismissedKey(self.id)) != start else { return nil }
+                return LongGap(reason: reason, days: streak, start: start)
+            }
+            day = cal.date(byAdding: .day, value: -1, to: day)!
         }
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
-        Task { try? await UNUserNotificationCenter.current().add(request) }
-    }
-
-    /// SF Symbol «questionmark» в цвете привычки — PNG во временной папке (iOS переносит
-    /// вложение к себе, файл после этого не нужен).
-    private static func questionImage(rgb: [Double]) -> URL? {
-        guard rgb.count >= 3,
-              let symbol = UIImage(systemName: "questionmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 120, weight: .bold))?
-                .withTintColor(UIColor(red: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1), renderingMode: .alwaysOriginal)
-        else { return nil }
-        let side: CGFloat = 200
-        let format = UIGraphicsImageRendererFormat()
-        format.opaque = false
-        format.scale = 1
-        let png = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).pngData { _ in
-            let size = symbol.size, k = min(150 / size.width, 150 / size.height)
-            let w = size.width * k, h = size.height * k
-            symbol.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
-        }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
-        return (try? png.write(to: url)) == nil ? nil : url
+        return nil
     }
 }
-#endif
+
+extension LongGap {
+    static func dismissedKey(_ habitID: UUID) -> String { "longGapDismissed|\(habitID)" }
+}

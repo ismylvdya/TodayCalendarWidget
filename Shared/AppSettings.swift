@@ -142,9 +142,7 @@ enum HabitSettings {
         static let twiceInnerSize = "habitTwiceInnerSize"
         static let twiceDarker = "habitTwiceDarker"
         static let twiceDarkness = "habitTwiceDarkness"
-        static let askWhyNotDone = "habitAskWhyNotDone"
         static let reasonAlertDays = "habitReasonAlertDays"
-        static let reasonsSince = "habitReasonsSince"
     }
 
 
@@ -157,28 +155,17 @@ enum HabitSettings {
         return s.isEmpty ? fallback : s
     }
 
-    /// Значок вопроса на несделанных днях без причины.
-    static var askWhyNotDone: Bool { d.object(forKey: Key.askWhyNotDone) == nil ? true : d.bool(forKey: Key.askWhyNotDone) }
     /// Через сколько дней подряд с одной причиной прислать уведомление (0 — не присылать).
     static var reasonAlertDays: Int { Int(double(Key.reasonAlertDays, 3)) }
-    /// С какого дня спрашивать причины: прежняя история без них — не пропуски без ответа.
-    static var reasonsSince: Date {
-        if let date = d.object(forKey: Key.reasonsSince) as? Date { return date }
-        // Впервые — с прошлой недели: недавние пропуски уже можно подписать.
-        let since = Calendar.current.date(byAdding: .day, value: -7, to: HabitDay.today())!
-        d.set(since, forKey: Key.reasonsSince)
-        return since
-    }
-
     /// До какого часа ночи отметка засчитывается предыдущему дню.
-    static var dayCutoffHour: Int { d.integer(forKey: Key.dayCutoffHour) }
+    static var dayCutoffHour: Int { Int(double(Key.dayCutoffHour, 3)) }
     /// Сколько недель чётко видно в виджете.
     static var widgetWeeks: Int { max(1, Int(double(Key.widgetWeeks, 4))) }
     static var buttonSize: Double { double(Key.buttonSize, 40) }
     /// Отступ кнопки от верхнего и правого края виджета.
-    static var buttonInset: Double { double(Key.buttonInset, 12) }
+    static var buttonInset: Double { double(Key.buttonInset, 9) }
     /// Отступ сетки от нижнего, левого и правого края виджета.
-    static var gridInset: Double { double(Key.gridInset, 16) }
+    static var gridInset: Double { double(Key.gridInset, 18) }
     /// Размер шрифта однострочного названия на виджетах (двустрочное — на треть меньше).
     static var titleSize: Double { double(Key.titleSize, 24) }
     /// Ближе какого расстояния до низа экрана подложка сетки на странице привычки не опускается.

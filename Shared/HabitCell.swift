@@ -36,25 +36,31 @@ struct HabitCell: View {
         ZStack(alignment: .bottomTrailing) {
             if let opaqueBackground { shape.fill(opaqueBackground) }
             cell
+            // Прозрачная обводка вокруг значков: равномерно вырезаем чуть увеличенный силуэт.
+            // Заметка — у правого нижнего угла, знак вопроса — у правого верхнего.
+            if hasNote {
+                DayBadgeView(badge: .note, size: badgeSize, cutout: true, color: .black)
+                    .blendMode(.destinationOut)
+                    .offset(x: badgeOffset.width, y: badgeOffset.height)
+            }
             if needsReason {
-                QuestionBadge(size: badgeSize, lineWidth: badgeSize * 0.16, cutout: true)
+                DayBadgeView(badge: .question, size: badgeSize, cutout: true, color: .black)
                     .blendMode(.destinationOut)
-                    .offset(x: badgeOffset.width, y: badgeOffset.height)
-            } else if hasNote {
-                // Прозрачная обводка вокруг значка: равномерно вырезаем чуть увеличенный силуэт.
-                NoteBadge(size: badgeSize, lineWidth: badgeSize * 0.16, cutout: true)
-                    .blendMode(.destinationOut)
-                    .offset(x: badgeOffset.width, y: badgeOffset.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .offset(x: badgeOffset.width, y: -badgeOffset.height)
             }
         }
         .compositingGroup()
         .overlay(alignment: .bottomTrailing) {
+            if hasNote {
+                DayBadgeView(badge: .note, size: badgeSize, cutout: false, color: noteColor)
+                    .offset(x: badgeOffset.width, y: badgeOffset.height)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
             if needsReason {
-                QuestionBadge(size: badgeSize, lineWidth: 0, cutout: false, color: noteColor)
-                    .offset(x: badgeOffset.width, y: badgeOffset.height)
-            } else if hasNote {
-                NoteBadge(size: badgeSize, lineWidth: 0, cutout: false, color: noteColor)
-                    .offset(x: badgeOffset.width, y: badgeOffset.height)
+                DayBadgeView(badge: .question, size: badgeSize, cutout: false, color: badgeColor)
+                    .offset(x: badgeOffset.width, y: -badgeOffset.height)
             }
         }
         .frame(width: size, height: size)
@@ -178,10 +184,15 @@ struct HabitCell: View {
         }
     }
 
-    /// Значок заметки: свой цвет или середина между выполненным и невыполненным днём.
+    /// Цвет значков дня: цвет привычки, а на подсвеченном пропуске — его полупрозрачная заливка.
+    private var badgeColor: Color {
+        missed && state == .none ? style.missedColor(missedHex).opacity(style.missedOpacity) : color
+    }
+
+    /// Значок заметки: свой цвет, если задан, иначе — как остальные значки.
     private var noteColor: Color {
         if let hex = noteIconHex, let custom = Color(hex: hex) { return custom }
-        return color.opacity((1 + style.undoneOpacity) / 2)
+        return badgeColor
     }
 
     // Значок заметки над нижним правым углом.
@@ -298,31 +309,79 @@ struct DiagonalStripes: Shape {
 
 /// Перемычки между соседними пропусками в строке недели — пропуски выглядят одним «червяком».
 /// Перемычка заполняет промежуток и уголки у скруглений, но не заходит на сами дни.
+/// Значок у дня: знак вопроса — у правого верхнего угла, заметка — у правого нижнего.
+enum DayBadge { case question, note }
+
+/// Значок дня по виду.
+struct DayBadgeView: View {
+    let badge: DayBadge
+    let size: CGFloat
+    let cutout: Bool
+    let color: Color
+
+    var body: some View {
+        switch badge {
+        case .question: QuestionBadge(size: size, lineWidth: cutout ? size * 0.16 : 0, cutout: cutout, color: color)
+        case .note: NoteBadge(size: size, lineWidth: cutout ? size * 0.16 : 0, cutout: cutout, color: color)
+        }
+    }
+}
+
 struct MissedLinks: View {
     /// Пропуск ли каждый из 7 дней строки.
     let flags: [Bool]
     let cell: CGFloat
     let gap: CGFloat
     let color: Color
+    /// Значки дней строки: полосу под ними вырезаем тем же силуэтом, что и клетку, —
+    /// прозрачная обводка значка идёт и поверх полосы.
+    var badges: [[DayBadge]] = []
+    /// Убрать полосу под самими днями — для полупрозрачных клеток (виджет, превью), иначе
+    /// она бы просвечивала. В приложении у клеток непрозрачная подложка, и полоса под ней
+    /// остаётся: когда день открывает меню, на его месте видна полоса, а не пустота.
+    var cutDays = true
+
+    private var badgeSize: CGFloat { max(8, cell * 0.3) }
 
     var body: some View {
+        // Подложка под днями: одна полоса на каждую серию пропусков подряд (от двух дней),
+        // края — по контуру крайних дней.
         Canvas { context, _ in
-            let radius = cell * 0.3
-            func day(_ i: Int) -> Path {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .path(in: CGRect(x: CGFloat(i) * (cell + gap), y: 0, width: cell, height: cell))
-            }
-            for i in 0..<max(0, flags.count - 1) where flags[i] && flags[i + 1] {
-                let x = CGFloat(i + 1) * cell + CGFloat(i) * gap
-                var layer = context
-                layer.clip(to: Path(CGRect(x: x - radius, y: 0, width: gap + 2 * radius, height: cell)))
-                layer.fill(Path(CGRect(x: x - radius, y: 0, width: gap + 2 * radius, height: cell)), with: .color(color))
-                layer.blendMode = .destinationOut
-                layer.fill(day(i), with: .color(.black))
-                layer.fill(day(i + 1), with: .color(.black))
+            var i = 0
+            while i < flags.count {
+                guard flags[i] else { i += 1; continue }
+                var j = i
+                while j + 1 < flags.count && flags[j + 1] { j += 1 }
+                if j > i {
+                    let rect = CGRect(x: CGFloat(i) * (cell + gap), y: 0, width: CGFloat(j - i + 1) * cell + CGFloat(j - i) * gap, height: cell)
+                    var layer = context
+                    layer.fill(Path(roundedRect: rect, cornerRadius: cell * 0.3, style: .continuous), with: .color(color))
+                    layer.blendMode = .destinationOut
+                    for k in i...j where cutDays {
+                        let day = CGRect(x: CGFloat(k) * (cell + gap), y: 0, width: cell, height: cell)
+                        layer.fill(Path(roundedRect: day, cornerRadius: cell * 0.3, style: .continuous), with: .color(.black))
+                    }
+                }
+                i = j + 1
             }
         }
         .frame(width: CGFloat(flags.count) * cell + CGFloat(max(0, flags.count - 1)) * gap, height: cell)
+        // Значки стоят у правых углов клетки со сдвигом (как в HabitCell): центр — на 0.09
+        // размера значка левее края и на 0.3 внутрь от нижнего (заметка) или верхнего (вопрос).
+        .mask {
+            ZStack(alignment: .topLeading) {
+                Rectangle()
+                ForEach(Array(badges.enumerated()), id: \.offset) { i, dayBadges in
+                    ForEach(Array(dayBadges.enumerated()), id: \.offset) { _, badge in
+                        DayBadgeView(badge: badge, size: badgeSize, cutout: true, color: .black)
+                            .position(x: CGFloat(i) * (cell + gap) + cell - badgeSize * 0.09,
+                                      y: badge == .note ? cell - badgeSize * 0.3 : badgeSize * 0.3)
+                            .blendMode(.destinationOut)
+                    }
+                }
+            }
+            .compositingGroup()
+        }
         .allowsHitTesting(false)
     }
 }

@@ -50,6 +50,8 @@ struct Habit: Codable, Identifiable, Hashable {
     var notes: [String: String] = [:]
     /// Причины несделанных дней: день → ID причины из общего списка (`HabitDB.reasons`).
     var skipReasons: [String: UUID] = [:]
+    /// Спрашивать причину несделанного дня: пункт меню, знаки вопроса, долгие пропуски.
+    var asksWhyNotDone = true
     /// Заметка к самой привычке и показывать ли её поле (текст сохраняется и при скрытом поле).
     var habitNote = ""
     var showsNote = true
@@ -199,6 +201,7 @@ struct Habit: Codable, Identifiable, Hashable {
         weeklyGoal = try c.decodeIfPresent(Int.self, forKey: .weeklyGoal) ?? 0
         notes = try c.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
         skipReasons = try c.decodeIfPresent([String: UUID].self, forKey: .skipReasons) ?? [:]
+        asksWhyNotDone = try c.decodeIfPresent(Bool.self, forKey: .asksWhyNotDone) ?? true
         habitNote = try c.decodeIfPresent(String.self, forKey: .habitNote) ?? ""
         showsNote = try c.decodeIfPresent(Bool.self, forKey: .showsNote) ?? true
         harmful = try c.decodeIfPresent(Bool.self, forKey: .harmful) ?? false

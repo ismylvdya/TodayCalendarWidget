@@ -112,14 +112,11 @@ final class HabitStore: ObservableObject {
 
     var reasons: [SkipReason] { db.reasons }
 
-    /// Причина дня (nil — снять). Одна причина несколько дней подряд — уведомление.
+    /// Причина дня (nil — снять).
     func setReason(_ id: UUID, day: Date, reason: UUID?) {
         guard var habit = habit(id) else { return }
         habit.setReason(reason, day: day)
         update(habit)
-        #if os(iOS)
-        if reason != nil { SkipPatternAlert.checkAfterSetting(habit, day: day, reasons: db.reasons) }
-        #endif
     }
 
     /// Новая причина в общем списке; пустое название — nil.

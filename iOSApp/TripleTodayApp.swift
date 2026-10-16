@@ -174,9 +174,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             if CalendarSettings.keepAfterSwipe { await AlertScheduler.keepAfterOpening(response.notification) }
         case AlertScheduler.deleteAction:
             AlertScheduler.deleteEvent(userInfo: info)
-        case UNNotificationDefaultActionIdentifier where info["habitID"] != nil:
-            // Уведомление о повторяющейся причине — открыть привычку.
-            if let id = (info["habitID"] as? String).flatMap(UUID.init) { await MainActor.run { AppRouter.shared.habit = id } }
         case UNNotificationDefaultActionIdentifier:
             if CalendarSettings.keepAfterTap { await AlertScheduler.keepAfterOpening(response.notification) }
             // Всегда Calendar — на дне события, за час до него.

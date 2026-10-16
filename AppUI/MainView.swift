@@ -245,7 +245,9 @@ struct MainView: View {
                                           reasons: store.reasons,
                                           setReason: { store.setReason(habit.id, day: HabitDay.today(), reason: $0) },
                                           newReason: { reasonText = ""; reasonFor = (habit.id, HabitDay.today()) })
-                            NavigationLink(value: Route.habit(habit.id)) { HabitRow(habit: habit) }
+                            NavigationLink(value: Route.habit(habit.id)) {
+                                HabitRow(habit: habit, longGap: habit.longGap(reasons: store.reasons) != nil)
+                            }
                         }
                     }
                     .onMove { store.moveActive(from: $0, to: $1) }
@@ -300,8 +302,11 @@ struct MainView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .listPageTitle(mainTitle, sideInset: 0, rowY: titleY)
-            // Короткий — вся фраза в одну строку, шрифт уменьшается, пока она не влезет.
-            .collapsingTitle(appName, bigTitle: mainTitle, minScale: 0.3)
+            // Короткого заголовка в панели на главной нет — только затухание под ней. Невидимый
+            // элемент держит панель той же высоты, что на других страницах: без него панель
+            // сжималась, и заголовок с затуханием поднимались выше.
+            .toolbar { ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) } }
+            .overlay(alignment: .top) { TopFade() }
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .habit(let id): HabitDetailView(store: store, habitID: id)
@@ -585,10 +590,15 @@ struct ArchiveView: View {
 
 struct HabitRow: View {
     let habit: Habit
+    /// Идёт долгий пропуск по одной причине — восклицательный знак у названия.
+    var longGap = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(habit.title).font(.system(.body, design: .rounded).weight(.semibold))
+            HStack(spacing: 3) {
+                Text(habit.title).font(.system(.body, design: .rounded).weight(.semibold))
+                if longGap { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange) }
+            }
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -597,6 +607,43 @@ struct HabitRow: View {
         let done = habit.doneInWeek(of: HabitDay.today())
         let goal = habit.weeklyGoal > 0 ? "\(done)/\(habit.weeklyGoal)" : "\(done)"
         return "\(goal) this week · " + (habit.links.isEmpty ? "manual" : "Reminders")
+    }
+}
+
+/// Плашка долгого пропуска на странице привычки: что случилось и что можно поменять.
+struct LongGapBanner: View {
+    let habitTitle: String
+    let gap: LongGap
+    let dismiss: () -> Void
+
+    var body: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 8) {
+                Label {
+                    Text("Long Gap").font(.system(.title3, design: .rounded).weight(.bold))
+                } icon: {
+                    Image(systemName: "exclamationmark.circle.fill")
+                }
+                .foregroundStyle(.orange)
+                Text("\(habitTitle): “\(gap.reason.title)” \(gap.days) days in a row")
+                    .font(.system(.headline, design: .rounded))
+                Text(gap.reason.kind.diagnosis + " Change the habit, not your willpower:").font(.subheadline)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(gap.reason.kind.ways, id: \.self) { way in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("•")
+                            Text(way)
+                        }
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
+                    Button("Got It", action: dismiss).font(.subheadline.weight(.semibold))
+                }
+            }
+        }
     }
 }
 
@@ -853,6 +900,8 @@ struct HabitDetailView: View {
     @State private var noteText = ""
     @State private var reasonFor: (UUID, Date)?
     @State private var reasonText = ""
+    /// Закрыли плашку долгого пропуска — перерисовать страницу.
+    @State private var longGapDismissals = 0
     /// Нижняя граница видимой области страницы — до неё может расти подложка сетки.
     @State private var pageBottom: CGFloat = 800
     /// Прокрутки страницы и сетки (UIKit): пока сетка раскрыта больше обычного, прокрутка
@@ -892,6 +941,15 @@ struct HabitDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, -PageTitle.subpageRaise)
                     .background(ScrollViewFinder { scrolls.attachPage($0) })
+
+                    // Долгий пропуск по одной причине — плашка с советом над сеткой.
+                    let _ = longGapDismissals
+                    if let gap = habit.longGap(reasons: store.reasons) {
+                        LongGapBanner(habitTitle: habit.title, gap: gap) {
+                            AppGroup.defaults.set(gap.start, forKey: LongGap.dismissedKey(habitID))
+                            withAnimation { longGapDismissals += 1 }
+                        }
+                    }
 
                     GrowingHistoryGrid(habit: habit, pageBottom: pageBottom, scrolls: scrolls,
                                        setState: { day, state in store.set(habitID, day: day, state: state) },
@@ -1043,6 +1101,9 @@ struct HabitDetailView: View {
             Divider()
             Toggle("Show Description", isOn: Binding(get: { habit.showsNote }, set: { var h = habit; h.showsNote = $0; store.update(h) }))
             Divider()
+            // Причины несделанных дней: пункт меню дня, знаки вопроса и долгие пропуски.
+            Toggle("Why Not Done", isOn: Binding(get: { habit.asksWhyNotDone }, set: { var h = habit; h.asksWhyNotDone = $0; store.update(h) }))
+            Divider()
             // Подгруппа: заголовок — как обычная строка, переключатели под ним — с отступом.
             Text("Own color for")
             Group {
@@ -1130,6 +1191,7 @@ struct GrowingHistoryGrid: View {
         let today = HabitDay.today()
         let style = HabitSettings.style
         let missed = habit.missedDays(today: today)
+        let firstMarked = habit.firstMarkedDay
 
         VStack(spacing: 8) {
             HStack(spacing: gap) {
@@ -1156,7 +1218,7 @@ struct GrowingHistoryGrid: View {
                             HStack(spacing: gap) {
                                 ForEach(0..<7, id: \.self) { i in
                                     if let day = week[i] {
-                                        dayCell(day, today: today, style: style, missed: missed.contains(HabitDay.key(day))).id(HabitDay.key(day))
+                                        dayCell(day, today: today, style: style, missed: missed.contains(HabitDay.key(day)), firstMarked: firstMarked).id(HabitDay.key(day))
                                     } else {
                                         Color.clear.frame(width: cell, height: cell)
                                     }
@@ -1164,7 +1226,13 @@ struct GrowingHistoryGrid: View {
                             }
                             .background(alignment: .topLeading) {
                                 MissedLinks(flags: week.map { $0.map { missed.contains(HabitDay.key($0)) } ?? false }, cell: cell, gap: gap,
-                                            color: style.missedColor(habit.missedHex).opacity(style.missedLinkOpacity))
+                                            color: style.missedColor(habit.missedHex).opacity(style.missedLinkOpacity),
+                                            badges: week.map { day in
+                                                guard let day else { return [] }
+                                                return (habit.note(day) != nil ? [.note] : [])
+                                                    + (habit.needsReason(day, today: today, firstMarked: firstMarked) ? [.question] : [])
+                                            },
+                                            cutDays: false)
                             }
                         }
                     }
@@ -1212,16 +1280,16 @@ struct GrowingHistoryGrid: View {
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { cardTop = $0 }
     }
 
-    private func cellView(_ day: Date, today: Date, style: HabitStyle, size: CGFloat, missed: Bool = false) -> HabitCell {
+    private func cellView(_ day: Date, today: Date, style: HabitStyle, size: CGFloat, missed: Bool = false, firstMarked: Date?) -> HabitCell {
         HabitCell(state: habit.state(day), isToday: day == today, color: habit.color, size: size, style: style,
                   partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, twiceIconHex: habit.twiceIconHex,
                   missed: missed, missedHex: habit.missedHex, hasNote: habit.note(day) != nil,
-                  needsReason: habit.needsReason(day, today: today),
+                  needsReason: habit.needsReason(day, today: today, firstMarked: firstMarked),
                   noteIconHex: habit.noteIconHex,
                   opaqueBackground: Color(.secondarySystemGroupedBackground))
     }
 
-    private func dayCell(_ day: Date, today: Date, style: HabitStyle, missed: Bool) -> some View {
+    private func dayCell(_ day: Date, today: Date, style: HabitStyle, missed: Bool, firstMarked: Date?) -> some View {
         let state = habit.state(day)
         let note = habit.note(day)
         // Обычное меню кнопки, а не контекстное: день не поднимается и не прыгает при закрытии,
@@ -1229,14 +1297,15 @@ struct GrowingHistoryGrid: View {
         // Содержимое меню строится при каждом открытии — дата в шапке всегда этого дня.
         // Рамка кнопки — габариты дня со значком заметки (он выступает за клетку), а форма —
         // ровно контур: иначе при закрытии меню значок обрезался по скруглённому квадрату.
-        let shape = DayShape(cell: cell, hasNote: note != nil || habit.needsReason(day, today: today))
+        let shape = DayShape(cell: cell, hasNote: note != nil, hasQuestion: habit.needsReason(day, today: today, firstMarked: firstMarked))
         let extra = shape.overhang
         return Menu {
             DayMenuItems(habit: habit, day: day, style: style, setState: { setState(day, $0) }, editNote: { editNote(day) },
                          reasons: reasons, setReason: { setReason(day, $0) }, newReason: { newReason(day) })
         } label: {
-            cellView(day, today: today, style: style, size: cell, missed: missed)
-                .frame(width: cell + extra.width, height: cell + extra.height, alignment: .topLeading)
+            cellView(day, today: today, style: style, size: cell, missed: missed, firstMarked: firstMarked)
+                .padding(.top, extra.top)
+                .frame(width: cell + extra.width, height: extra.top + cell + extra.height, alignment: .topLeading)
                 .contentShape(.interaction, shape)
                 .contentShape(.contextMenuPreview, shape)
         } primaryAction: {
@@ -1252,6 +1321,7 @@ struct GrowingHistoryGrid: View {
         .contentShape(.hoverEffect, shape)
         .padding(.trailing, -extra.width)
         .padding(.bottom, -extra.height)
+        .padding(.top, -extra.top)
     }
 
     /// Сетка растворяется у краёв подложки, если за краем есть ещё недели. Сверху — как в виджете:
@@ -1290,7 +1360,7 @@ struct DayMenuItems: View {
         let state = habit.state(day)
         let note = habit.note(day)
         Section(day.formatted(date: .complete, time: .omitted)) {
-            if state == .none && day <= HabitDay.today() { reasonMenu }
+            if habit.asksWhyNotDone && state == .none && day <= HabitDay.today() { reasonMenu }
             // Сделано / не сделано — нажатием по дню; в меню — только недоделано и перевыполнено.
             ForEach([HabitDayState.partial, .over]) { option in
                 Button { setState(option) } label: {
@@ -1363,19 +1433,27 @@ struct DayMenuItems: View {
 /// (как в HabitCell: значок размером 0.3 клетки, с прозрачной обводкой).
 struct DayShape: Shape {
     let cell: CGFloat
+    /// Значок заметки — у правого нижнего угла, знак вопроса — у правого верхнего.
     let hasNote: Bool
+    let hasQuestion: Bool
 
     private var badge: CGFloat { max(8, cell * 0.3) }
 
-    /// Насколько значок заметки выступает за клетку вправо и вниз.
-    var overhang: CGSize { hasNote ? CGSize(width: badge * 0.46, height: badge * 0.36) : .zero }
+    /// Насколько значки выступают за клетку: вправо, вниз (заметка) и вверх (вопрос).
+    var overhang: (width: CGFloat, height: CGFloat, top: CGFloat) {
+        (hasNote || hasQuestion ? badge * 0.46 : 0, hasNote ? badge * 0.36 : 0, hasQuestion ? badge * 0.36 : 0)
+    }
 
+    /// Клетка начинается на `overhang.top` ниже верха рамки.
     func path(in rect: CGRect) -> Path {
-        var p = Path(roundedRect: CGRect(x: 0, y: 0, width: cell, height: cell), cornerRadius: cell * 0.3, style: .continuous)
+        let top = overhang.top
+        var p = Path(roundedRect: CGRect(x: 0, y: top, width: cell, height: cell), cornerRadius: cell * 0.3, style: .continuous)
+        let corner = CGSize(width: badge * 0.25, height: badge * 0.25)
         if hasNote {
-            let x = cell - badge * 0.64, y = cell - badge * 0.96
-            p.addRoundedRect(in: CGRect(x: x, y: y, width: badge * 1.1, height: badge * 1.32),
-                             cornerSize: CGSize(width: badge * 0.25, height: badge * 0.25))
+            p.addRoundedRect(in: CGRect(x: cell - badge * 0.64, y: top + cell - badge * 0.96, width: badge * 1.1, height: badge * 1.32), cornerSize: corner)
+        }
+        if hasQuestion {
+            p.addRoundedRect(in: CGRect(x: cell - badge * 0.64, y: top - badge * 0.36, width: badge * 1.1, height: badge * 1.32), cornerSize: corner)
         }
         return p
     }
@@ -1549,12 +1627,12 @@ struct HabitStats {
 struct HabitSettingsView: View {
     @ObservedObject var store: HabitStore
     @State private var titleY: CGFloat?
-    @AppStorage(HabitSettings.Key.dayCutoffHour, store: AppGroup.defaults) private var cutoff = 0
+    @AppStorage(HabitSettings.Key.dayCutoffHour, store: AppGroup.defaults) private var cutoff = 3
     @AppStorage(HabitSettings.Key.titleSize, store: AppGroup.defaults) private var titleSize = 24.0
     @AppStorage(HabitSettings.Key.widgetWeeks, store: AppGroup.defaults) private var weeks = 4.0
     @AppStorage(HabitSettings.Key.buttonSize, store: AppGroup.defaults) private var buttonSize = 40.0
-    @AppStorage(HabitSettings.Key.buttonInset, store: AppGroup.defaults) private var buttonInset = 12.0
-    @AppStorage(HabitSettings.Key.gridInset, store: AppGroup.defaults) private var gridInset = 16.0
+    @AppStorage(HabitSettings.Key.buttonInset, store: AppGroup.defaults) private var buttonInset = 9.0
+    @AppStorage(HabitSettings.Key.gridInset, store: AppGroup.defaults) private var gridInset = 18.0
     @AppStorage(HabitSettings.Key.undoneOpacity, store: AppGroup.defaults) private var undoneOpacity = 0.15
     @AppStorage(HabitSettings.Key.partialPattern, store: AppGroup.defaults) private var pattern = PartialPattern.icon.rawValue
     @AppStorage(HabitSettings.Key.stripeWidth, store: AppGroup.defaults) private var stripeWidth = 6.0
@@ -1892,24 +1970,51 @@ struct BannerSection: View {
 /// о повторяющейся причине.
 struct SkipReasonsSection: View {
     @ObservedObject var store: HabitStore
-    @AppStorage(HabitSettings.Key.askWhyNotDone, store: AppGroup.defaults) private var ask = true
     @AppStorage(HabitSettings.Key.reasonAlertDays, store: AppGroup.defaults) private var alertDays = 3.0
     @State private var newTitle = ""
 
+    private static let info = """
+    Pick a reason from the menu of a not-done day (hold it, or today's checkbox) → Why Not Done?
+
+    Each reason has a kind (after Tiny Habits: a habit happens when prompt, ability and motivation meet):
+    • Prompt — nothing reminded you: forgot, no cue.
+    • Ability — too hard or no time.
+    • Motivation — didn't want to.
+    • Excused — sick, travel: not a reason to change anything, never counts as a long gap.
+    • Other — anything else.
+
+    When the latest not-done days in a row share one non-excused reason, the habit gets an exclamation mark and its page suggests what to change for that kind.
+    """
+
     var body: some View {
         Section {
-            Toggle("Ask Why Not Done", isOn: $ask)
-            ValueStepper("Same reason alert after", shown: alertDays == 0 ? "off" : "\(Int(alertDays))",
+            ValueStepper("Long gap after", shown: alertDays == 0 ? "off" : "\(Int(alertDays))",
                          after: alertDays == 0 ? "" : "days", value: $alertDays, in: 0...14, step: 1)
+            // Подгруппа, как «Own color for»: заголовок обычной строкой, причины под ним —
+            // с отступом и без разделителей.
+            HStack {
+                Text("Skip Reasons")
+                Spacer()
+                InfoButton(text: Self.info, tint: .accentColor)
+            }
+            .listRowSeparator(.hidden, edges: .bottom)
             ForEach(store.reasons) { reason in
                 HStack {
                     TextField("Reason", text: Binding(get: { reason.title }, set: { var r = reason; r.title = $0; store.updateReason(r) }))
                     Picker("Kind", selection: Binding(get: { reason.kind }, set: { var r = reason; r.kind = $0; store.updateReason(r) })) {
-                        ForEach(SkipKind.allCases) { Text($0.title).tag($0) }
+                        ForEach(SkipKind.allCases) { Text($0.shortTitle).tag($0) }
                     }
                     .labelsHidden()
                     .fixedSize()
+                    // Удалить — как привязанное напоминание: красный минус справа.
+                    Button(role: .destructive) {
+                        if let i = store.reasons.firstIndex(where: { $0.id == reason.id }) { store.deleteReasons(at: [i]) }
+                    } label: { Image(systemName: "minus.circle.fill") }
+                        .buttonStyle(.borderless)
                 }
+                // С отступом подгруппы и плотнее обычных строк.
+                .listRowInsets(EdgeInsets(top: 2, leading: 36, bottom: 2, trailing: 16))
+                .listRowSeparator(.hidden)
             }
             .onDelete { store.deleteReasons(at: $0) }
             .onMove { store.moveReasons(from: $0, to: $1) }
@@ -1918,10 +2023,12 @@ struct SkipReasonsSection: View {
                 Button(action: add) { Image(systemName: "plus.circle.fill") }
                     .disabled(newTitle.trimmingCharacters(in: .whitespaces).isEmpty)
             }
+            .padding(.leading, 20)
+            .listRowSeparator(.hidden, edges: .top)
         } header: {
             RoundedHeader("Why Not Done")
         } footer: {
-            Text("Hold a not-done day (or today's checkbox) → Why Not Done? A good habit's past not-done day without a reason gets a question mark. When one reason repeats for several days in a row, a notification suggests what to change: per Tiny Habits, a habit that doesn't happen lacks a prompt, ability or motivation — fix the habit's design, not yourself. Excused reasons never alert. Swipe a reason to delete it.")
+            Text("Turned on in each habit's settings.")
         }
     }
 
