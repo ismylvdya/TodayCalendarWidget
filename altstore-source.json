@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.1.2",
+          "buildVersion": "4",
+          "date": "2026-10-16",
+          "localizedDescription": "Short calendar events (under 30 minutes) are shown as half-hour slots; alert bell color settings for light and dark themes; main title raised; red icon for Stop Backing Up.",
+          "size": 1232180,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1.2/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.1.1",
           "buildVersion": "3",
           "date": "2026-10-16",
@@ -51,11 +60,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.1.1",
+      "version": "1.1.2",
       "versionDate": "2026-10-16",
-      "versionDescription": "Fixes: backup folder, CSV import and restore from backup pickers now work; calendar events align exactly with hour lines and short events shrink their title instead of growing; version shown at the bottom of the main page.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1.1/HabitsOnReminders.ipa",
-      "size": 1227072
+      "versionDescription": "Short calendar events (under 30 minutes) are shown as half-hour slots; alert bell color settings for light and dark themes; main title raised; red icon for Stop Backing Up.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1.2/HabitsOnReminders.ipa",
+      "size": 1232180
     }
   ],
   "news": [],
