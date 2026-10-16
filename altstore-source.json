@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.1",
+          "buildVersion": "2",
+          "date": "2026-10-16",
+          "localizedDescription": "Backups (with iCloud folder), CSV import, trash, merge, missed days, Twice a day refinements, app icon picker, alerts for events moved earlier, and many settings refinements. See the commit history for details.",
+          "size": 1221556,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.0",
           "buildVersion": "1",
           "date": "2026-10-16",
