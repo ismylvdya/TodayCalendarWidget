@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.3",
+          "buildVersion": "9",
+          "date": "2026-10-17",
+          "localizedDescription": "Today's day replaces the checkboxes: on the main screen each habit shows today's cell with the same marks and menu as its grid, and widgets show it as their button (the round checkbox is still available in settings). Why Not Done is now a per-habit switch: question marks on not-done days without a reason, and a Long Gap banner with tips instead of notifications. Missed days sit on a continuous band, notes and question marks have their own corners, and new defaults: a day ends at 3:00.",
+          "size": 1381587,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.3/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.2.1",
           "buildVersion": "8",
           "date": "2026-10-16",
@@ -96,11 +105,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.2.1",
-      "versionDate": "2026-10-16",
-      "versionDescription": "Page titles no longer disappear during or after pull to refresh, and a short title appears in the bar when you scroll. Banners stay 10 seconds (tap or swipe up to close), sit beside the back button and their width is adjustable in settings. The same-reason alert is marked 「Long Gap」 with a question mark in the habit's color. Marking a day earlier than the first one keeps the grid in place and adds the half year before it.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.2.1/HabitsOnReminders.ipa",
-      "size": 1348485
+      "version": "1.3",
+      "versionDate": "2026-10-17",
+      "versionDescription": "Today's day replaces the checkboxes: on the main screen each habit shows today's cell with the same marks and menu as its grid, and widgets show it as their button (the round checkbox is still available in settings). Why Not Done is now a per-habit switch: question marks on not-done days without a reason, and a Long Gap banner with tips instead of notifications. Missed days sit on a continuous band, notes and question marks have their own corners, and new defaults: a day ends at 3:00.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.3/HabitsOnReminders.ipa",
+      "size": 1381587
     }
   ],
   "news": [],
