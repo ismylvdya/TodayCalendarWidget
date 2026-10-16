@@ -143,6 +143,7 @@ enum HabitSettings {
         static let twiceDarker = "habitTwiceDarker"
         static let twiceDarkness = "habitTwiceDarkness"
         static let reasonAlertDays = "habitReasonAlertDays"
+        static let squircleButton = "habitSquircleButton"
     }
 
 
@@ -162,8 +163,10 @@ enum HabitSettings {
     /// Сколько недель чётко видно в виджете.
     static var widgetWeeks: Int { max(1, Int(double(Key.widgetWeeks, 4))) }
     static var buttonSize: Double { double(Key.buttonSize, 40) }
+    /// Кнопка виджета — сегодняшний день как клетка сетки (иначе — круглый чекбокс).
+    static var squircleButton: Bool { d.object(forKey: Key.squircleButton) == nil ? true : d.bool(forKey: Key.squircleButton) }
     /// Отступ кнопки от верхнего и правого края виджета.
-    static var buttonInset: Double { double(Key.buttonInset, 9) }
+    static var buttonInset: Double { double(Key.buttonInset, squircleButton ? 14 : 9) }
     /// Отступ сетки от нижнего, левого и правого края виджета.
     static var gridInset: Double { double(Key.gridInset, 18) }
     /// Размер шрифта однострочного названия на виджетах (двустрочное — на треть меньше).

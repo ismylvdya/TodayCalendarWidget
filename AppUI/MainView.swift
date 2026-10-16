@@ -251,7 +251,7 @@ struct MainView: View {
                         }
                     }
                     .onMove { store.moveActive(from: $0, to: $1) }
-                    Button { showingNewHabit = true } label: { Label("New Habit", systemImage: "plus") }
+                    Button { showingNewHabit = true } label: { PlainLabel("New Habit", systemImage: "plus", tinted: true) }
                 } header: {
                     RoundedHeader("Habits")
                 }
@@ -371,13 +371,26 @@ extension View {
 }
 
 /// Строка с иконкой цвета текста (в списке иконка Label иначе красится акцентным цветом).
+/// Иконка — по центру столбца шириной с сегодняшний день у привычек, текст — там же, где
+/// начинаются названия привычек.
 struct PlainLabel: View {
     let title: String
     let systemImage: String
-    init(_ title: String, systemImage: String) { self.title = title; self.systemImage = systemImage }
+    /// Иконка цвета акцента (у кнопок), а не текста.
+    var tinted = false
+    init(_ title: String, systemImage: String, tinted: Bool = false) {
+        self.title = title; self.systemImage = systemImage; self.tinted = tinted
+    }
 
     var body: some View {
-        Label { Text(title) } icon: { Image(systemName: systemImage).foregroundStyle(.primary) }
+        HStack(spacing: 12) {
+            // Размер — как у иконки Label в списке (она крупнее текста).
+            Image(systemName: systemImage)
+                .imageScale(.large)
+                .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                .frame(width: TodayCheckbox.size)
+            Text(title)
+        }
     }
 }
 
@@ -522,10 +535,10 @@ struct ListDot: View {
     }
 }
 
-/// Чекбокс «сегодня выполнено» слева от привычки, как в Reminders.
-/// У «Twice a day»: сделано — заполненный, дважды — заполненный в окружности.
-/// Долгое нажатие — то же меню, что у дня в сетке (для сегодняшнего дня).
+/// Сегодняшний день слева от привычки — та же клетка, что в сетке на её странице: те же
+/// отметки, значки и меню. Нажатие — следующая отметка, долгое нажатие — меню дня.
 struct TodayCheckbox: View {
+    static let size: CGFloat = 32
     let habit: Habit
     let tap: () -> Void
     let setState: (HabitDayState) -> Void
@@ -538,28 +551,29 @@ struct TodayCheckbox: View {
     var body: some View {
         let today = HabitDay.today()
         let state = habit.state(today)
-        let twice = habit.twiceADay && state == .twice
+        let size = Self.size
+        // Сегодня знака вопроса нет (день ещё идёт), значок может быть только у заметки.
+        let shape = DayShape(cell: size, hasNote: habit.note(today) != nil, hasQuestion: false)
+        let extra = shape.overhang
         Menu {
             DayMenuItems(habit: habit, day: today, style: HabitSettings.style, setState: setState, editNote: editNote,
                          reasons: reasons, setReason: setReason, newReason: newReason)
         } label: {
-            ZStack {
-                if twice {
-                    Circle().strokeBorder(habit.color, lineWidth: 2.25).frame(width: 30, height: 30)
-                    Image(systemName: "checkmark.circle.fill").font(.system(size: 20))
-                } else {
-                    Image(systemName: state == .none ? "circle" : "checkmark.circle.fill").font(.system(size: 24))
-                }
-            }
-            .frame(width: 30, height: 30)
-            .foregroundStyle(habit.color)
-            .contentShape(Circle())
+            HabitCell(state: state, isToday: true, color: habit.color, size: size, style: HabitSettings.style,
+                      partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, twiceIconHex: habit.twiceIconHex,
+                      hasNote: habit.note(today) != nil, noteIconHex: habit.noteIconHex,
+                      opaqueBackground: Color(.secondarySystemGroupedBackground))
+                .frame(width: size + extra.width, height: size + extra.height, alignment: .topLeading)
+                .contentShape(.interaction, shape)
+                .contentShape(.contextMenuPreview, shape)
         } primaryAction: {
             tap()
         }
         .menuIndicator(.hidden)
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.35).onEnded { _ in longPresses += 1 })
+        .padding(.trailing, -extra.width)
+        .padding(.bottom, -extra.height)
         .sensoryFeedback(.impact(weight: .light), trigger: state)
         .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
     }
@@ -1631,7 +1645,8 @@ struct HabitSettingsView: View {
     @AppStorage(HabitSettings.Key.titleSize, store: AppGroup.defaults) private var titleSize = 24.0
     @AppStorage(HabitSettings.Key.widgetWeeks, store: AppGroup.defaults) private var weeks = 4.0
     @AppStorage(HabitSettings.Key.buttonSize, store: AppGroup.defaults) private var buttonSize = 40.0
-    @AppStorage(HabitSettings.Key.buttonInset, store: AppGroup.defaults) private var buttonInset = 9.0
+    @AppStorage(HabitSettings.Key.squircleButton, store: AppGroup.defaults) private var squircleButton = true
+    @AppStorage(HabitSettings.Key.buttonInset, store: AppGroup.defaults) private var buttonInset = HabitSettings.buttonInset
     @AppStorage(HabitSettings.Key.gridInset, store: AppGroup.defaults) private var gridInset = 18.0
     @AppStorage(HabitSettings.Key.undoneOpacity, store: AppGroup.defaults) private var undoneOpacity = 0.15
     @AppStorage(HabitSettings.Key.partialPattern, store: AppGroup.defaults) private var pattern = PartialPattern.icon.rawValue
@@ -1719,6 +1734,12 @@ struct HabitSettingsView: View {
             Section {
                 ValueStepper("Title size:", shown: "\(Int(titleSize))", after: "pt", value: $titleSize, in: 12...36, step: 1)
                 ValueStepper("Weeks shown:", shown: "\(Int(weeks))", value: $weeks, in: 1...8, step: 1)
+                Picker("Button", selection: $squircleButton) {
+                    Text("Today's Day").tag(true)
+                    Text("Round Checkbox").tag(false)
+                }
+                // У квадрата дня свой отступ от края по умолчанию: 14, у круглого чекбокса — 9.
+                .onChange(of: squircleButton) { _, squircle in buttonInset = squircle ? 14 : 9 }
                 ValueStepper("Button diameter:", shown: "\(Int(buttonSize))", after: "pt", value: $buttonSize, in: 24...60, step: 1)
                 ValueStepper("Button inset:", shown: "\(Int(buttonInset))", after: "pt", value: $buttonInset, in: 0...24, step: 1)
                 ValueStepper("Grid inset:", shown: "\(Int(gridInset))", after: "pt", value: $gridInset, in: 0...24, step: 1)

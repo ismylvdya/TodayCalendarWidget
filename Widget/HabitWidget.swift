@@ -176,15 +176,24 @@ struct HabitHeader: View {
             .offset(y: -1)
             .widgetAccentable()
             // Сегодня сделано полностью (у «Twice a day» — дважды) — кнопка снимает отметку.
-            let done = habit.isComplete(HabitDay.today())
+            let today = HabitDay.today()
+            let done = habit.isComplete(today)
+            let size = HabitSettings.buttonSize
             Button(intent: MarkHabitTodayIntent(habitID: habit.id)) {
-                Image(systemName: done ? "xmark.circle" : "checkmark.circle.fill")
-                    .resizable()
-                    .foregroundStyle(habit.color)
-                    .frame(width: HabitSettings.buttonSize, height: HabitSettings.buttonSize)
+                if HabitSettings.squircleButton {
+                    // Сегодняшний день — та же клетка, что в сетке приложения.
+                    HabitCell(state: habit.state(today), isToday: true, color: habit.color, size: size, style: HabitSettings.style,
+                              partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, twiceIconHex: habit.twiceIconHex)
+                } else {
+                    Image(systemName: done ? "xmark.circle" : "checkmark.circle.fill")
+                        .resizable()
+                        .foregroundStyle(habit.color)
+                        .frame(width: size, height: size)
+                }
             }
             .buttonStyle(.plain)
-            .contentShape(Circle())
+            .contentShape(HabitSettings.squircleButton
+                          ? AnyShape(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)) : AnyShape(Circle()))
             // Размер шрифта названия на кнопку не влияет.
             .fixedSize()
             .layoutPriority(1)
