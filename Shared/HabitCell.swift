@@ -18,6 +18,8 @@ struct HabitCell: View {
     var missedHex: String?
     /// Показать значок заметки (только в приложении).
     var hasNote = false
+    /// Несделанный день без причины — значок вопроса на месте значка заметки (только в приложении).
+    var needsReason = false
     /// Свой цвет значка заметки.
     var noteIconHex: String?
     /// Непрозрачная подложка под клеткой (для поднятия в контекстном меню).
@@ -34,7 +36,11 @@ struct HabitCell: View {
         ZStack(alignment: .bottomTrailing) {
             if let opaqueBackground { shape.fill(opaqueBackground) }
             cell
-            if hasNote {
+            if needsReason {
+                QuestionBadge(size: badgeSize, lineWidth: badgeSize * 0.16, cutout: true)
+                    .blendMode(.destinationOut)
+                    .offset(x: badgeOffset.width, y: badgeOffset.height)
+            } else if hasNote {
                 // Прозрачная обводка вокруг значка: равномерно вырезаем чуть увеличенный силуэт.
                 NoteBadge(size: badgeSize, lineWidth: badgeSize * 0.16, cutout: true)
                     .blendMode(.destinationOut)
@@ -43,7 +49,10 @@ struct HabitCell: View {
         }
         .compositingGroup()
         .overlay(alignment: .bottomTrailing) {
-            if hasNote {
+            if needsReason {
+                QuestionBadge(size: badgeSize, lineWidth: 0, cutout: false, color: noteColor)
+                    .offset(x: badgeOffset.width, y: badgeOffset.height)
+            } else if hasNote {
                 NoteBadge(size: badgeSize, lineWidth: 0, cutout: false, color: noteColor)
                     .offset(x: badgeOffset.width, y: badgeOffset.height)
             }
@@ -201,6 +210,31 @@ struct NoteBadge: View {
                 DocFold().fill(Color.white.opacity(0.35))
             }
             .frame(width: w, height: h)
+        }
+    }
+}
+
+/// Значок вопроса — того же размера, что значок заметки. `cutout` — силуэт, расширенный
+/// на `lineWidth`: знак, повторённый со сдвигом во все стороны.
+struct QuestionBadge: View {
+    let size: CGFloat
+    let lineWidth: CGFloat
+    let cutout: Bool
+    var color: Color = .secondary
+
+    var body: some View {
+        let mark = Image(systemName: "questionmark").resizable().scaledToFit().fontWeight(.heavy)
+            .frame(width: size * 0.78, height: size)
+        if cutout {
+            ZStack {
+                ForEach(0..<12, id: \.self) { i in
+                    let a = Double(i) / 12 * 2 * .pi
+                    mark.offset(x: cos(a) * lineWidth, y: sin(a) * lineWidth)
+                }
+            }
+            .foregroundStyle(.black)
+        } else {
+            mark.foregroundStyle(color)
         }
     }
 }

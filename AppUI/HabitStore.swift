@@ -108,6 +108,51 @@ final class HabitStore: ObservableObject {
         if added > 0 && day == HabitDay.today() { ReminderSync.completeNext(habit, count: added) }
     }
 
+    // MARK: Причины несделанных дней
+
+    var reasons: [SkipReason] { db.reasons }
+
+    /// Причина дня (nil — снять). Одна причина несколько дней подряд — уведомление.
+    func setReason(_ id: UUID, day: Date, reason: UUID?) {
+        guard var habit = habit(id) else { return }
+        habit.setReason(reason, day: day)
+        update(habit)
+        #if os(iOS)
+        if reason != nil { SkipPatternAlert.checkAfterSetting(habit, day: day, reasons: db.reasons) }
+        #endif
+    }
+
+    /// Новая причина в общем списке; пустое название — nil.
+    @discardableResult
+    func addReason(_ title: String, kind: SkipKind = .other) -> UUID? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let same = db.reasons.first(where: { $0.title.caseInsensitiveCompare(trimmed) == .orderedSame }) { return same.id }
+        let reason = SkipReason(title: trimmed, kind: kind)
+        db.reasons.append(reason)
+        persist()
+        return reason.id
+    }
+
+    func updateReason(_ reason: SkipReason) {
+        guard let i = db.reasons.firstIndex(where: { $0.id == reason.id }) else { return }
+        db.reasons[i] = reason
+        persist()
+    }
+
+    /// Удалённая причина снимается и со всех дней.
+    func deleteReasons(at offsets: IndexSet) {
+        let ids = Set(offsets.map { db.reasons[$0].id })
+        db.reasons.remove(atOffsets: offsets)
+        for i in db.habits.indices { db.habits[i].skipReasons = db.habits[i].skipReasons.filter { !ids.contains($0.value) } }
+        persist()
+    }
+
+    func moveReasons(from source: IndexSet, to destination: Int) {
+        db.reasons.move(fromOffsets: source, toOffset: destination)
+        persist()
+    }
+
     /// Импорт из CSV: привычки узнаются по ID или названию, остальные создаются.
     /// Уже отмеченные дни и заметки не перезаписываются. Возвращает (новых привычек, добавленных дней).
     func importCSV(_ imported: [HabitCSV.Imported]) -> (habits: Int, days: Int) {
@@ -201,6 +246,7 @@ final class HabitStore: ObservableObject {
             }
         }
         m.removedDays = a.removedDays.union(b.removedDays).subtracting(m.completions)
+        m.skipReasons = b.skipReasons.merging(a.skipReasons) { own, _ in own }
         for (key, note) in b.notes {
             if let own = m.notes[key], own != note { m.notes[key] = own + " / " + note } else { m.notes[key] = note }
         }

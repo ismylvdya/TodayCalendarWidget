@@ -104,6 +104,9 @@ struct MainView: View {
     @State private var noteText = ""
     /// Большой заголовок ушёл под панель — показать короткий в панели, как у iOS.
     @State private var titleScrolledAway = false
+    /// Новая причина из меню дня: для какой привычки и дня.
+    @State private var reasonFor: (UUID, Date)?
+    @State private var reasonText = ""
     /// Открыть привычку по ссылке из виджета или уведомления.
     var openHabit: UUID?
 
@@ -119,7 +122,10 @@ struct MainView: View {
                             TodayCheckbox(habit: habit,
                                           tap: { store.set(habit.id, day: HabitDay.today(), state: habit.nextTap(habit.state(HabitDay.today()))) },
                                           setState: { store.set(habit.id, day: HabitDay.today(), state: $0) },
-                                          editNote: { noteText = habit.note(HabitDay.today()) ?? ""; noteHabit = habit.id })
+                                          editNote: { noteText = habit.note(HabitDay.today()) ?? ""; noteHabit = habit.id },
+                                          reasons: store.reasons,
+                                          setReason: { store.setReason(habit.id, day: HabitDay.today(), reason: $0) },
+                                          newReason: { reasonText = ""; reasonFor = (habit.id, HabitDay.today()) })
                             NavigationLink(value: Route.habit(habit.id)) { HabitRow(habit: habit) }
                         }
                     }
@@ -208,6 +214,7 @@ struct MainView: View {
                 }
                 Button("Cancel", role: .cancel) { noteHabit = nil }
             }
+            .newReasonAlert(store: store, target: $reasonFor, text: $reasonText)
         }
         .task { await store.refresh() }
         // Возврат в приложение: перечитать базу (виджет мог отметить день) и Reminders.
@@ -230,6 +237,24 @@ extension MainView {
         default: return
         }
         if empty { path.removeAll() }
+    }
+}
+
+extension View {
+    /// Новая причина из меню дня: добавляется в общий список и сразу ставится этому дню.
+    func newReasonAlert(store: HabitStore, target: Binding<(UUID, Date)?>, text: Binding<String>) -> some View {
+        alert("New Reason", isPresented: Binding(get: { target.wrappedValue != nil }, set: { if !$0 { target.wrappedValue = nil } })) {
+            TextField("Reason", text: text)
+            Button("Add") {
+                if let (habit, day) = target.wrappedValue, let id = store.addReason(text.wrappedValue) {
+                    store.setReason(habit, day: day, reason: id)
+                }
+                target.wrappedValue = nil
+            }
+            Button("Cancel", role: .cancel) { target.wrappedValue = nil }
+        } message: {
+            Text("Added to the reasons of all habits (Habits on Reminders Settings → Why Not Done).")
+        }
     }
 }
 
@@ -404,6 +429,9 @@ struct TodayCheckbox: View {
     let tap: () -> Void
     let setState: (HabitDayState) -> Void
     let editNote: () -> Void
+    let reasons: [SkipReason]
+    let setReason: (UUID?) -> Void
+    let newReason: () -> Void
     @State private var longPresses = 0
 
     var body: some View {
@@ -411,7 +439,8 @@ struct TodayCheckbox: View {
         let state = habit.state(today)
         let twice = habit.twiceADay && state == .twice
         Menu {
-            DayMenuItems(habit: habit, day: today, style: HabitSettings.style, setState: setState, editNote: editNote)
+            DayMenuItems(habit: habit, day: today, style: HabitSettings.style, setState: setState, editNote: editNote,
+                         reasons: reasons, setReason: setReason, newReason: newReason)
         } label: {
             ZStack {
                 if twice {
@@ -723,6 +752,8 @@ struct HabitDetailView: View {
     @FocusState private var titleFocused: Bool
     @State private var noteDay: Date?
     @State private var noteText = ""
+    @State private var reasonFor: (UUID, Date)?
+    @State private var reasonText = ""
     /// Нижняя граница видимой области страницы — до неё может расти подложка сетки.
     @State private var pageBottom: CGFloat = 800
     /// Прокрутки страницы и сетки (UIKit): пока сетка раскрыта больше обычного, прокрутка
@@ -765,7 +796,10 @@ struct HabitDetailView: View {
 
                     GrowingHistoryGrid(habit: habit, pageBottom: pageBottom, scrolls: scrolls,
                                        setState: { day, state in store.set(habitID, day: day, state: state) },
-                                       editNote: { day in noteText = habit.note(day) ?? ""; noteDay = day })
+                                       editNote: { day in noteText = habit.note(day) ?? ""; noteDay = day },
+                                       reasons: store.reasons,
+                                       setReason: { day, reason in store.setReason(habitID, day: day, reason: reason) },
+                                       newReason: { day in reasonText = ""; reasonFor = (habitID, day) })
 
                     // Заметка к привычке: поле во всю ширину, растёт по тексту.
                     if habit.showsNote {
@@ -861,6 +895,7 @@ struct HabitDetailView: View {
                 }
                 Button("Cancel", role: .cancel) { noteDay = nil }
             }
+            .newReasonAlert(store: store, target: $reasonFor, text: $reasonText)
             .sheet(isPresented: $choosingMerge) {
                 HabitPickerView(habits: store.habits.filter { $0.id != habitID && !$0.isTrashed }) { mergeWith = $0 }
             }
@@ -944,6 +979,9 @@ struct GrowingHistoryGrid: View {
     let scrolls: NestedScrolls
     let setState: (Date, HabitDayState) -> Void
     let editNote: (Date) -> Void
+    let reasons: [SkipReason]
+    let setReason: (Date, UUID?) -> Void
+    let newReason: (Date) -> Void
 
     private let gap: CGFloat = 6
     private let pad: CGFloat = 16
@@ -1063,6 +1101,7 @@ struct GrowingHistoryGrid: View {
         HabitCell(state: habit.state(day), isToday: day == today, color: habit.color, size: size, style: style,
                   partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, twiceIconHex: habit.twiceIconHex,
                   missed: missed, missedHex: habit.missedHex, hasNote: habit.note(day) != nil,
+                  needsReason: habit.needsReason(day, today: today),
                   noteIconHex: habit.noteIconHex,
                   opaqueBackground: Color(.secondarySystemGroupedBackground))
     }
@@ -1075,10 +1114,11 @@ struct GrowingHistoryGrid: View {
         // Содержимое меню строится при каждом открытии — дата в шапке всегда этого дня.
         // Рамка кнопки — габариты дня со значком заметки (он выступает за клетку), а форма —
         // ровно контур: иначе при закрытии меню значок обрезался по скруглённому квадрату.
-        let shape = DayShape(cell: cell, hasNote: note != nil)
+        let shape = DayShape(cell: cell, hasNote: note != nil || habit.needsReason(day, today: today))
         let extra = shape.overhang
         return Menu {
-            DayMenuItems(habit: habit, day: day, style: style, setState: { setState(day, $0) }, editNote: { editNote(day) })
+            DayMenuItems(habit: habit, day: day, style: style, setState: { setState(day, $0) }, editNote: { editNote(day) },
+                         reasons: reasons, setReason: { setReason(day, $0) }, newReason: { newReason(day) })
         } label: {
             cellView(day, today: today, style: style, size: cell, missed: missed)
                 .frame(width: cell + extra.width, height: cell + extra.height, alignment: .topLeading)
@@ -1126,11 +1166,16 @@ struct DayMenuItems: View {
     let style: HabitStyle
     let setState: (HabitDayState) -> Void
     let editNote: () -> Void
+    /// Общий список причин несделанного дня; выбрать (nil — снять) или создать новую.
+    let reasons: [SkipReason]
+    let setReason: (UUID?) -> Void
+    let newReason: () -> Void
 
     var body: some View {
         let state = habit.state(day)
         let note = habit.note(day)
         Section(day.formatted(date: .complete, time: .omitted)) {
+            if state == .none && day <= HabitDay.today() { reasonMenu }
             // Сделано / не сделано — нажатием по дню; в меню — только недоделано и перевыполнено.
             ForEach([HabitDayState.partial, .over]) { option in
                 Button { setState(option) } label: {
@@ -1142,6 +1187,25 @@ struct DayMenuItems: View {
         Section {
             Button(action: editNote) { Label(note == nil ? "Add Note…" : "Edit Note…", systemImage: "doc") }
             if let note { Text(note) }
+        }
+    }
+
+    /// «Why Not Done?» — вложенное меню причин (выбранная — с галочкой и подписью под пунктом).
+    private var reasonMenu: some View {
+        let current = habit.reason(day)
+        return Menu {
+            ForEach(reasons) { reason in
+                Button { setReason(reason.id == current ? nil : reason.id) } label: {
+                    if reason.id == current { Label(reason.title, systemImage: "checkmark") } else { Text(reason.title) }
+                }
+            }
+            Divider()
+            Button(action: newReason) { Label("New Reason…", systemImage: "plus") }
+        } label: {
+            Label {
+                Text("Why Not Done?")
+                if let title = reasons.first(where: { $0.id == current })?.title { Text(title) }
+            } icon: { Image(systemName: "questionmark") }
         }
     }
 
@@ -1505,6 +1569,9 @@ struct HabitSettingsView: View {
             }
             .listSectionSpacing(18)
 
+            SkipReasonsSection(store: store)
+                .listSectionSpacing(18)
+
             Section {
                 VStack(alignment: .leading) {
                     Text("Bottom margin for Grid Feed: \(Int(gridBottomMargin)) pt")
@@ -1680,6 +1747,48 @@ struct HabitSettingsView: View {
 }
 
 /// Имя SF Symbol текстом и сам символ.
+/// Причины несделанных дней: общий список для всех привычек, значок вопроса и уведомление
+/// о повторяющейся причине.
+struct SkipReasonsSection: View {
+    @ObservedObject var store: HabitStore
+    @AppStorage(HabitSettings.Key.askWhyNotDone, store: AppGroup.defaults) private var ask = true
+    @AppStorage(HabitSettings.Key.reasonAlertDays, store: AppGroup.defaults) private var alertDays = 3.0
+    @State private var newTitle = ""
+
+    var body: some View {
+        Section {
+            Toggle("Ask Why Not Done", isOn: $ask)
+            ValueStepper("Same reason alert after", shown: alertDays == 0 ? "off" : "\(Int(alertDays))",
+                         after: alertDays == 0 ? "" : "days", value: $alertDays, in: 0...14, step: 1)
+            ForEach(store.reasons) { reason in
+                HStack {
+                    TextField("Reason", text: Binding(get: { reason.title }, set: { var r = reason; r.title = $0; store.updateReason(r) }))
+                    Picker("Kind", selection: Binding(get: { reason.kind }, set: { var r = reason; r.kind = $0; store.updateReason(r) })) {
+                        ForEach(SkipKind.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+            .onDelete { store.deleteReasons(at: $0) }
+            .onMove { store.moveReasons(from: $0, to: $1) }
+            HStack {
+                TextField("New Reason", text: $newTitle).onSubmit(add)
+                Button(action: add) { Image(systemName: "plus.circle.fill") }
+                    .disabled(newTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        } header: {
+            RoundedHeader("Why Not Done")
+        } footer: {
+            Text("Hold a not-done day (or today's checkbox) → Why Not Done? A good habit's past not-done day without a reason gets a question mark. When one reason repeats for several days in a row, a notification suggests what to change: per Tiny Habits, a habit that doesn't happen lacks a prompt, ability or motivation — fix the habit's design, not yourself. Excused reasons never alert. Swipe a reason to delete it.")
+        }
+    }
+
+    private func add() {
+        if store.addReason(newTitle) != nil { newTitle = "" }
+    }
+}
+
 struct SymbolField: View {
     let title: String
     @Binding var symbol: String
