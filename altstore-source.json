@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.1.1",
+          "buildVersion": "3",
+          "date": "2026-10-16",
+          "localizedDescription": "Fixes: backup folder, CSV import and restore from backup pickers now work; calendar events align exactly with hour lines and short events shrink their title instead of growing; version shown at the bottom of the main page.",
+          "size": 1227072,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1.1/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.1",
           "buildVersion": "2",
           "date": "2026-10-16",
@@ -42,11 +51,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.1",
+      "version": "1.1.1",
       "versionDate": "2026-10-16",
-      "versionDescription": "Backups (with iCloud folder), CSV import, trash, merge, missed days, Twice a day refinements, app icon picker, alerts for events moved earlier, and many settings refinements. See the commit history for details.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1/HabitsOnReminders.ipa",
-      "size": 1221569
+      "versionDescription": "Fixes: backup folder, CSV import and restore from backup pickers now work; calendar events align exactly with hour lines and short events shrink their title instead of growing; version shown at the bottom of the main page.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1.1/HabitsOnReminders.ipa",
+      "size": 1227072
     }
   ],
   "news": [],
