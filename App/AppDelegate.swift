@@ -62,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let script = NSAppleScript(source: """
             tell application "Calendar"
                 activate
-                view calendar at (current date)
+                view calendar at ((current date) - 1 * hours)
             end tell
             """)
         var error: NSDictionary?

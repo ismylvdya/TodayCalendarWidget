@@ -50,7 +50,7 @@ struct HabitWidgetIntent: WidgetConfigurationIntent {
     @Parameter(title: "Habit")
     var habit: HabitEntity?
 
-    @Parameter(title: "Title size", default: .appDefault)
+    @Parameter(title: "Title font", default: .appDefault)
     var titleSize: TitleSize
 
     @Parameter(title: "Wrap Title", description: "Off: one line, the end fades out", default: false)
@@ -69,8 +69,9 @@ struct MarkHabitTodayIntent: AppIntent {
     init() {}
     init(habitID: UUID) { self.habitID = habitID.uuidString }
 
+    /// Сегодня не отмечено — отметить «выполнено»; уже отмечено — снять отметку.
     func perform() async throws -> some IntentResult {
-        if let id = UUID(uuidString: habitID) { HabitActions.markToday(habitID: id) }
+        if let id = UUID(uuidString: habitID) { HabitActions.toggleToday(habitID: id) }
         return .result()
     }
 }
@@ -143,14 +144,19 @@ struct HabitHeader: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .widgetAccentable()
+            // Сегодня уже отмечено — кнопка снимает отметку.
+            let done = habit.state(HabitDay.today()) != .none
             Button(intent: MarkHabitTodayIntent(habitID: habit.id)) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: done ? "xmark.circle" : "checkmark.circle.fill")
                     .resizable()
                     .foregroundStyle(habit.color)
                     .frame(width: HabitSettings.buttonSize, height: HabitSettings.buttonSize)
             }
             .buttonStyle(.plain)
             .contentShape(Circle())
+            // Размер шрифта названия на кнопку не влияет.
+            .fixedSize()
+            .layoutPriority(1)
             .widgetAccentable()
         }
     }

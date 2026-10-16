@@ -18,17 +18,50 @@ struct RoundedHeader: View {
 struct PageTitle: View {
     /// На вложенных экранах заголовок ниже, чем на главном (из-за кнопки «назад»).
     static let subpageRaise: CGFloat = 20
-    /// Отступ заголовка от краёв содержимого на вложенных экранах — до правого края кнопки «назад».
+    /// Отступ первой строки заголовка от краёв содержимого на вложенных экранах — до правого
+    /// края кнопки «назад» (и столько же справа). Следующие строки — на всю ширину.
     static let sideInset: CGFloat = 46
+    static let font = UIFont.systemFont(ofSize: 34, weight: .bold).rounded
 
     let title: String
-    init(_ title: String) { self.title = title }
+    var sideInset: CGFloat = 0
+    init(_ title: String, sideInset: CGFloat = 0) { self.title = title; self.sideInset = sideInset }
 
     var body: some View {
-        Text(title)
-            .font(.system(size: 34, weight: .bold, design: .rounded))
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
+        // Ширина содержимого страницы: экран без полей по 16.
+        let full = UIScreen.main.bounds.width - 32
+        let (first, rest) = Self.split(title, firstWidth: full - 2 * sideInset)
+        VStack(spacing: 0) {
+            Text(first).padding(.horizontal, sideInset)
+            if !rest.isEmpty { Text(rest) }
+        }
+        .font(.system(size: 34, weight: .bold, design: .rounded))
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Первая строка — столько слов, сколько помещается в `firstWidth` (или до явного переноса);
+    /// остальное — второй частью.
+    static func split(_ title: String, firstWidth: CGFloat) -> (String, String) {
+        if let nl = title.firstIndex(of: "\n") {
+            return (String(title[..<nl]), String(title[title.index(after: nl)...]))
+        }
+        let words = title.split(separator: " ", omittingEmptySubsequences: false).map(String.init)
+        var first = words.first ?? ""
+        var i = 1
+        while i < words.count {
+            let candidate = first + " " + words[i]
+            if (candidate as NSString).size(withAttributes: [.font: font]).width > firstWidth { break }
+            first = candidate; i += 1
+        }
+        return (first, words[i...].joined(separator: " "))
+    }
+}
+
+extension UIFont {
+    var rounded: UIFont {
+        fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: pointSize) } ?? self
     }
 }
 
@@ -40,10 +73,10 @@ struct PageTitleRow: View {
     init(_ title: String, raise: CGFloat = PageTitle.subpageRaise) { self.title = title; self.raise = raise }
 
     var body: some View {
-        PageTitle(title)
-            // Вложенные экраны: заголовок не заходит под кнопку «назад», справа — так же.
-            .padding(.horizontal, raise > 0 ? PageTitle.sideInset : 0)
-            .padding(.top, -raise)
+        // Вложенные экраны: первая строка не заходит под кнопку «назад», справа — так же.
+        // Подъём — отрицательным верхним полем всего списка (.pageTitleRaise()), а не строки:
+        // строка с отрицательным отступом обрезала верх заголовка.
+        PageTitle(title, sideInset: raise > 0 ? PageTitle.sideInset : 0)
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 4, trailing: 0))
     }
@@ -58,6 +91,7 @@ enum Route: Hashable {
 /// Главный экран: привычки, архив, настройки привычек и календаря.
 struct MainView: View {
     @StateObject private var store = HabitStore()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var path: [Route] = []
     @State private var showingNewHabit = false
     /// Открыть привычку по ссылке из виджета или уведомления.
@@ -116,6 +150,8 @@ struct MainView: View {
             .sheet(isPresented: $showingNewHabit) { NewHabitView(store: store) }
         }
         .task { await store.refresh() }
+        // Возврат в приложение: перечитать базу (виджет мог отметить день) и Reminders.
+        .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await store.refresh() } } }
         .onChange(of: openHabit) { _, id in if let id { path = [.habit(id)] } }
         .onAppear { if let openHabit { path = [.habit(openHabit)] } }
     }
@@ -134,6 +170,7 @@ struct TodayCheckbox: View {
                 .foregroundStyle(habit.color)
         }
         .buttonStyle(.borderless)
+        .sensoryFeedback(.impact(weight: .light), trigger: done)
     }
 }
 
@@ -150,6 +187,7 @@ struct ArchiveView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
     }
 }
 
@@ -362,6 +400,8 @@ struct HabitDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDelete = false
     @State private var choosingReminder = false
+    @State private var editingTitle = false
+    @FocusState private var titleFocused: Bool
     @State private var noteDay: Date?
     @State private var noteText = ""
     /// Нижняя граница видимой области страницы — до неё может расти подложка сетки.
@@ -374,16 +414,31 @@ struct HabitDetailView: View {
                     // Заголовок — это и есть название: редактируется прямо здесь.
                     // Без своего названия в поле стоит название напоминания (обычным цветом); пока текст
                     // совпадает с ним, своё название не сохраняется — и следует переименованиям в Reminders.
-                    TextField("Habit", text: Binding(get: { habit.title }, set: { new in
-                        var h = habit
-                        h.name = new == h.links.last?.titles.last ? "" : new
-                        store.update(h)
-                    }), axis: .vertical)
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, PageTitle.sideInset)
-                        .padding(.top, -PageTitle.subpageRaise)
+                    Group {
+                        if editingTitle {
+                            // Название без переносов строк: Return просто закрывает клавиатуру.
+                            TextField("Habit", text: Binding(get: { habit.title }, set: { raw in
+                                let new = raw.replacingOccurrences(of: "\n", with: "")
+                                var h = habit
+                                h.name = new == h.links.last?.titles.last ? "" : new
+                                store.update(h)
+                                if raw.contains("\n") { titleFocused = false }
+                            }), axis: .vertical)
+                                .font(.system(size: 34, weight: .bold, design: .rounded))
+                                .multilineTextAlignment(.center)
+                                .focused($titleFocused)
+                                .onChange(of: titleFocused) { _, focused in if !focused { editingTitle = false } }
+                                .onAppear { titleFocused = true }
+                                .padding(.horizontal, PageTitle.sideInset)
+                        } else {
+                            // Нажатие — редактирование.
+                            PageTitle(habit.title, sideInset: PageTitle.sideInset)
+                                .contentShape(Rectangle())
+                                .onTapGesture { editingTitle = true }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, -PageTitle.subpageRaise)
 
                     GrowingHistoryGrid(habit: habit, pageBottom: pageBottom,
                                        setState: { day, state in store.set(habitID, day: day, state: state) },
@@ -450,6 +505,9 @@ struct HabitDetailView: View {
                      text: Binding(get: { habit.name }, set: { var h = habit; h.name = $0; store.update(h) }))
             Divider()
             ReminderTimesField(times: habit.reminderTimes) { var h = habit; h.reminderTimes = $0; store.update(h); store.syncNotifications() }
+            Divider()
+            InputRow(title: "Custom subtitle", placeholder: "none",
+                     text: Binding(get: { habit.notificationSubtitle }, set: { var h = habit; h.notificationSubtitle = $0; store.update(h); store.syncNotifications() }))
             Divider()
             ColorPicker("Color", selection: Binding(get: { habit.color }, set: { var h = habit; h.colorHex = $0.hexString; store.update(h) }),
                         supportsOpacity: false)
@@ -524,6 +582,14 @@ struct GrowingHistoryGrid: View {
     /// (иначе на первой раскладке она сразу растягивается до максимума).
     @State private var ready = false
     @State private var position = ScrollPosition(edge: .bottom)
+    /// Счётчик нажатий по дням — для отклика вибрацией.
+    @State private var taps = 0
+    @AppStorage(HabitSettings.Key.previewScale, store: AppGroup.defaults) private var previewScale = 1.0
+    @AppStorage(HabitSettings.Key.previewPlatter, store: AppGroup.defaults) private var platter = false
+    @AppStorage(HabitSettings.Key.previewMargin, store: AppGroup.defaults) private var previewMargin = 18.0
+
+    /// Прозрачные поля клетки в сетке — поле подложки превью в масштабе сетки (без подложки — 0).
+    private var lift: CGFloat { platter ? previewMargin / previewScale : 0 }
 
     private var cell: CGFloat { max(10, (width - 2 * pad - 6 * gap) / 7) }
 
@@ -563,11 +629,11 @@ struct GrowingHistoryGrid: View {
                     Text("Half a year before the first marked day")
                         .font(.caption).foregroundStyle(.secondary)
                         .padding(.vertical, 10)
-                    // У каждой клетки прозрачные поля `lift` (для контекстного меню, см. dayCell);
-                    // поля соседей перекрываются — промежутки отрицательные, шаг сетки прежний.
+                    // Недели и дни опознаются по дате, а не по номеру: иначе контекстное меню
+                    // показывало чужую дату и ставило отметку не на тот день.
+                    // С подложкой у каждой клетки прозрачные поля `lift` (см. dayCell); поля соседей
+                    // перекрываются — промежутки отрицательные, шаг сетки прежний.
                     VStack(spacing: gap - 2 * lift) {
-                        // Недели и дни опознаются по дате, а не по номеру: иначе контекстное меню
-                        // показывало чужую дату и ставило отметку не на тот день.
                         ForEach(HabitGrid.weeks(count: weekCount, endingAt: today), id: \.first) { week in
                             HStack(spacing: gap - 2 * lift) {
                                 ForEach(0..<7, id: \.self) { i in
@@ -580,8 +646,8 @@ struct GrowingHistoryGrid: View {
                             }
                         }
                     }
-                    .padding(.horizontal, -lift)
-                    .padding(.vertical, -lift)
+                    .padding(-lift)
+                    .sensoryFeedback(.impact(weight: .light), trigger: taps)
                 }
                 .padding(.horizontal, pad)
                 .padding(.bottom, pad)
@@ -608,11 +674,6 @@ struct GrowingHistoryGrid: View {
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { cardTop = $0 }
     }
 
-    /// Во сколько раз день в превью контекстного меню больше дня в сетке.
-    private static let previewScale: CGFloat = 1.6
-    /// Прозрачные поля клетки в сетке — поле подложки превью в масштабе сетки.
-    private var lift: CGFloat { HabitSettings.previewMargin / Self.previewScale }
-
     private func cellView(_ day: Date, today: Date, style: HabitStyle, size: CGFloat) -> HabitCell {
         HabitCell(state: habit.state(day), isToday: day == today, color: habit.color, size: size, style: style,
                   partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, hasNote: habit.note(day) != nil,
@@ -623,17 +684,24 @@ struct GrowingHistoryGrid: View {
     private func dayCell(_ day: Date, today: Date, style: HabitStyle) -> some View {
         let state = habit.state(day)
         let note = habit.note(day)
-        // Закрывая меню, iOS сжимает превью целиком в рамку исходного вида. Превью — день на
-        // подложке с полями, поэтому рамка исходного вида — день с прозрачными полями в той же
-        // пропорции (точная уменьшенная копия превью): тогда превью садится ровно на место.
-        // Подъём — по контуру дня и места под значок; нажатия — только по самому дню.
+        let scale = previewScale
+        // Превью меню — точная копия исходного вида в масштабе `scale`: закрывая меню, iOS сжимает
+        // превью в рамку исходного вида, и при одинаковых пропорциях день садится ровно на место.
+        // Без подложки рамка — габариты дня со значком заметки (он выступает за клетку);
+        // с подложкой — день с прозрачными полями `lift` (поле подложки в масштабе сетки).
+        // При 100% без подложки превью совпадает с днём — подъём без увеличения.
+        let shape = CellLiftShape(cell: cell, margin: lift, hasNote: note != nil, cornerDots: false)
+        let extra = platter ? .zero : shape.overhang
+        let frame = CGSize(width: cell + 2 * lift + extra.width, height: cell + 2 * lift + extra.height)
         return cellView(day, today: today, style: style, size: cell)
-            .onTapGesture { setState(day, state == .none ? .done : .none) }
             .padding(lift)
-            .contentShape(.interaction, CellLiftShape(cell: cell, margin: lift, hasNote: false))
-            // Выступ под значок — только у дней с заметкой: у остальных он при возврате
-            // анимировался отдельным «углом».
-            .contentShape(.contextMenuPreview, CellLiftShape(cell: cell, margin: lift, hasNote: note != nil))
+            .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+            .contentShape(.interaction, shape)
+            .contentShape(.contextMenuPreview, shape)
+            .onTapGesture {
+                taps += 1
+                setState(day, state == .none ? .done : .none)
+            }
             .contextMenu {
                 Section(day.formatted(date: .complete, time: .omitted)) {
                     // Текущее состояние — бледное (пункт неактивен: выбрать его снова ничего не меняет).
@@ -649,14 +717,15 @@ struct GrowingHistoryGrid: View {
                     if let note { Text(note) }
                 }
             } preview: {
-                // Превью: увеличенный день на подложке-скруглённом квадрате с полем из настроек.
-                let big = cell * Self.previewScale
-                let m = lift * Self.previewScale
+                let big = cell * scale, m = lift * scale
                 cellView(day, today: today, style: style, size: big)
                     .padding(m)
-                    .background(Color(.secondarySystemGroupedBackground),
+                    .background(platter ? Color(.secondarySystemGroupedBackground) : .clear,
                                 in: RoundedRectangle(cornerRadius: big * 0.3 + m, style: .continuous))
+                    .frame(width: frame.width * scale, height: frame.height * scale, alignment: .topLeading)
             }
+            .padding(.trailing, -extra.width)
+            .padding(.bottom, -extra.height)
     }
 
     /// Сетка растворяется у краёв подложки, если за краем есть ещё недели. Сверху — как в виджете:
@@ -676,7 +745,7 @@ struct GrowingHistoryGrid: View {
     /// Иконка пункта меню одного размера для всех состояний: «не сделано» и «сделано» —
     /// скруглённые квадраты как клетки дней, остальные — иконки из настроек.
     /// `dim` — текущее состояние: иконка бледная (система бледнит у неактивного пункта только текст).
-    @MainActor private func menuIcon(_ state: HabitDayState, _ style: HabitStyle, dim: Bool = false) -> Image {
+    @MainActor private func menuUIImage(_ state: HabitDayState, _ style: HabitStyle, dim: Bool) -> UIImage? {
         let side: CGFloat = 22
         let squircle = RoundedRectangle(cornerRadius: side * 0.3, style: .continuous)
         let content: AnyView = switch state {
@@ -685,10 +754,16 @@ struct GrowingHistoryGrid: View {
         case .partial: AnyView(Image(systemName: style.partialSymbol).resizable().scaledToFit())
         case .over: AnyView(Image(systemName: style.overSymbol).resizable().scaledToFit())
         }
-        let tint: Color = dim ? Color.gray.opacity(0.35) : .black
-        let renderer = ImageRenderer(content: content.foregroundStyle(tint).frame(width: side, height: side))
+        let renderer = ImageRenderer(content: content.foregroundStyle(.black).frame(width: side, height: side))
         renderer.scale = 3
-        return (renderer.uiImage.map { Image(uiImage: $0).renderingMode(dim ? .original : .template) }) ?? Image(systemName: "square")
+        guard let image = renderer.uiImage else { return nil }
+        // Текущее состояние — бледная иконка, остальные — цвета текста меню.
+        return dim ? image.withTintColor(.tertiaryLabel, renderingMode: .alwaysOriginal) : image.withRenderingMode(.alwaysTemplate)
+    }
+
+    @MainActor private func menuIcon(_ state: HabitDayState, _ style: HabitStyle, dim: Bool = false) -> Image {
+        // Шаблонная картинка — цвета текста меню (в тёмной теме белая); текущее — бледная.
+        menuUIImage(state, style, dim: dim).map { Image(uiImage: $0) } ?? Image(systemName: "square")
     }
 }
 
@@ -697,6 +772,14 @@ struct CellLiftShape: Shape {
     let cell: CGFloat
     let margin: CGFloat
     let hasNote: Bool
+    var cornerDots = true
+
+    /// Насколько значок заметки выступает за клетку вправо и вниз.
+    var overhang: CGSize {
+        guard hasNote else { return .zero }
+        let badge = max(8, cell * 0.3)
+        return CGSize(width: badge * 0.46, height: badge * 0.36)
+    }
 
     func path(in rect: CGRect) -> Path {
         let square = CGRect(x: margin, y: margin, width: cell, height: cell)
@@ -711,9 +794,11 @@ struct CellLiftShape: Shape {
         }
         // Невидимые точки в углах рамки: габариты формы = рамка вида. По габаритам iOS кладёт
         // превью при закрытии меню; без них форма несимметрична, и день вставал со сдвигом.
-        let dot: CGFloat = 0.01
-        p.addRect(CGRect(x: rect.minX, y: rect.minY, width: dot, height: dot))
-        p.addRect(CGRect(x: rect.maxX - dot, y: rect.maxY - dot, width: dot, height: dot))
+        if cornerDots {
+            let dot: CGFloat = 0.01
+            p.addRect(CGRect(x: rect.minX, y: rect.minY, width: dot, height: dot))
+            p.addRect(CGRect(x: rect.maxX - dot, y: rect.maxY - dot, width: dot, height: dot))
+        }
         return p
     }
 }
@@ -876,10 +961,13 @@ struct HabitSettingsView: View {
     @AppStorage(HabitSettings.Key.overIconScale, store: AppGroup.defaults) private var overIconScale = 0.65
     @AppStorage(HabitSettings.Key.overIconDarker, store: AppGroup.defaults) private var overDarker = true
     @AppStorage(HabitSettings.Key.overIconDarkness, store: AppGroup.defaults) private var overDarkness = 0.65
-    @AppStorage(HabitSettings.Key.gridBottomMargin, store: AppGroup.defaults) private var gridBottomMargin = -11.0
+    @AppStorage(HabitSettings.Key.gridBottomMargin, store: AppGroup.defaults) private var gridBottomMargin = 1.0
+    @AppStorage(HabitSettings.Key.previewScale, store: AppGroup.defaults) private var previewScale = 1.0
+    @AppStorage(HabitSettings.Key.previewPlatter, store: AppGroup.defaults) private var previewPlatter = false
     @AppStorage(HabitSettings.Key.previewMargin, store: AppGroup.defaults) private var previewMargin = 18.0
     @AppStorage(HabitSettings.Key.prefix, store: AppGroup.defaults) private var prefix = "Habit"
     @AppStorage(HabitSettings.Key.separator, store: AppGroup.defaults) private var separator = NotificationTitle.defaultSeparator
+    @AppStorage(HabitSettings.Key.symbol, store: AppGroup.defaults) private var notificationSymbol = "checkmark.circle.fill"
     @State private var hasAccess = ReminderSync.hasAccess
 
     private var previewStyle: HabitStyle {
@@ -909,7 +997,9 @@ struct HabitSettingsView: View {
         Form {
             PageTitleRow("Reminders Habiter Settings")
 
-            NotificationSettingsSection(image: .habit, prefix: $prefix, separator: $separator, example: "инбокс разобрать")
+            NotificationSettingsSection(image: .habit, prefix: $prefix, separator: $separator, example: store.habits.first?.title ?? "Habit",
+                                        symbol: $notificationSymbol, previewColor: store.habits.first?.color ?? .blue,
+                                        exampleBody: "your custom subtitle")
 
             Section {
                 if hasAccess {
@@ -948,19 +1038,31 @@ struct HabitSettingsView: View {
                     Text("Not done opacity: \(Int(undoneOpacity * 100))%")
                     Slider(value: $undoneOpacity, in: 0.03...0.5)
                 }
-                VStack(alignment: .leading) {
-                    Text("Context menu day margin: \(Int(previewMargin)) pt")
-                    Slider(value: $previewMargin, in: 0...40, step: 1)
-                }
-                VStack(alignment: .leading) {
-                    Text("Page grid bottom margin: \(Int(gridBottomMargin)) pt")
-                    Slider(value: $gridBottomMargin, in: -15...200, step: 1)
-                }
                 preview
             } header: {
                 RoundedHeader("Days")
+            }
+
+            Section {
+                VStack(alignment: .leading) {
+                    Text("Bottom margin: \(Int(gridBottomMargin)) pt")
+                    Slider(value: $gridBottomMargin, in: -15...200, step: 1)
+                }
+                VStack(alignment: .leading) {
+                    Text("Context menu day size: \(Int((previewScale * 100).rounded()))%")
+                    Slider(value: $previewScale, in: 1...2, step: 0.05)
+                }
+                Toggle("Context menu day background", isOn: $previewPlatter)
+                if previewPlatter {
+                    VStack(alignment: .leading) {
+                        Text("Background margin: \(Int(previewMargin)) pt")
+                        Slider(value: $previewMargin, in: 0...40, step: 1)
+                    }
+                }
+            } header: {
+                RoundedHeader("Habit Page Grid")
             } footer: {
-                Text("Bottom margin: how close to the bottom of the screen the grid card on a habit page may grow.")
+                Text("Bottom margin: how close to the bottom of the screen the grid card may grow. Context menu day size: how much a long-pressed day is enlarged (100% — not enlarged).")
             }
 
             Section {
@@ -1023,7 +1125,7 @@ struct HabitSettingsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .contentMargins(.top, 0, for: .scrollContent)
+        .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
         .onDisappear { WidgetCenter.shared.reloadAllTimelines() }
     }
 }
@@ -1060,7 +1162,7 @@ struct CalendarSettingsView: View {
     @AppStorage(CalendarSettings.Key.alertsEnabled, store: AppGroup.defaults) private var alertsEnabled = true
     @AppStorage(CalendarSettings.Key.keepAfterTap, store: AppGroup.defaults) private var keepAfterTap = true
     @AppStorage(CalendarSettings.Key.removeWhenMovedLater, store: AppGroup.defaults) private var removeMovedLater = true
-    @AppStorage(CalendarSettings.Key.removeWhenDeleted, store: AppGroup.defaults) private var removeDeleted = false
+    @AppStorage(CalendarSettings.Key.removeWhenDeleted, store: AppGroup.defaults) private var removeDeleted = true
     @AppStorage(CalendarSettings.Key.notificationTapOpensEvent, store: AppGroup.defaults) private var tapOpensEvent = false
     @AppStorage(CalendarSettings.Key.staleLabelMinutes, store: AppGroup.defaults) private var staleMinutes = 30
     @AppStorage(CalendarSettings.Key.cursorHex, store: AppGroup.defaults) private var cursorHex = CalendarSettings.defaultCursorHex
@@ -1068,6 +1170,7 @@ struct CalendarSettingsView: View {
     @AppStorage(CalendarSettings.Key.defaultDayEnd, store: AppGroup.defaults) private var dayEnd = 24
     @AppStorage(CalendarSettings.Key.prefix, store: AppGroup.defaults) private var prefix = ""
     @AppStorage(CalendarSettings.Key.separator, store: AppGroup.defaults) private var separator = NotificationTitle.defaultSeparator
+    @AppStorage(CalendarSettings.Key.symbol, store: AppGroup.defaults) private var notificationSymbol = "calendar"
 
     var body: some View {
         Form {
@@ -1087,6 +1190,7 @@ struct CalendarSettingsView: View {
                 Text("Notifications for events with alerts are scheduled \(CalendarSettings.alertDaysAhead) days ahead.")
             }
             NotificationSettingsSection(image: .calendar, prefix: $prefix, separator: $separator, example: "Buy groceries",
+                                        symbol: $notificationSymbol, previewColor: .red,
                                         extra: AnyView(CalendarImagesRows()))
             Section {
                 Picker("Default Day Start", selection: $dayStart) { ForEach(0..<24, id: \.self) { Text("\($0):00").tag($0) } }
@@ -1100,7 +1204,7 @@ struct CalendarSettingsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .contentMargins(.top, 0, for: .scrollContent)
+        .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
         .onDisappear { WidgetCenter.shared.reloadAllTimelines() }
     }
 }
@@ -1159,13 +1263,21 @@ struct NotificationSettingsSection: View {
     @Binding var prefix: String
     @Binding var separator: String
     let example: String
+    /// SF Symbol справа, если своей картинки нет, и цвет для превью.
+    @Binding var symbol: String
+    var previewColor: Color = .blue
+    var exampleBody = "16:00 – 17:00"
     /// Дополнительные строки (например, картинки отдельных календарей).
     var extra: AnyView? = nil
     @State private var customSeparator = ""
 
     var body: some View {
         Section {
+            NotificationPreview(title: NotificationTitle.make(example, prefix: prefix, separator: separator),
+                                text: exampleBody, image: image, symbol: symbol, color: previewColor)
             NotificationImageRows(image: image, onChange: resync)
+            SymbolField(title: "Or SF Symbol", symbol: $symbol,
+                        presets: ["calendar", "checkmark.circle.fill", "bell.fill", "star.fill", "flame.fill", "leaf.fill", "bolt.fill", "heart.fill"])
             if let extra { extra }
             InputRow(title: "Prefix text", placeholder: "none", text: $prefix)
             // Готовые разделители или свой (любой текст, например эмодзи).
@@ -1181,13 +1293,13 @@ struct NotificationSettingsSection: View {
                     separator = $0
                 }))
             }
-            Text(NotificationTitle.make(example, prefix: prefix, separator: separator)).font(.headline)
         } header: {
-            RoundedHeader("Notifications")
+            RoundedHeader("Notification Appearance")
         } footer: {
-            Text("The image is shown on the right of notifications; PNG with transparency is kept as is.")
+            Text("The image is shown on the right of notifications; PNG with transparency is kept as is. Without an image the SF Symbol is used, in the calendar's or habit's color. In the list iOS may show the image only after a long press.")
         }
         .onChange(of: prefix) { resync() }
+        .onChange(of: symbol) { resync() }
         .onChange(of: separator) { resync() }
     }
 
@@ -1241,4 +1353,48 @@ struct CalendarImagesRows: View {
 struct IdentifiedCalendar: Identifiable {
     let calendar: EKCalendar
     var id: String { calendar.calendarIdentifier }
+}
+
+/// Превью уведомления в настройках: иконка приложения, заголовок с префиксом, текст и картинка.
+struct NotificationPreview: View {
+    /// Иконка приложения из Info.plist (в каталоге ресурсов её по имени не достать).
+    static let appIcon: UIImage = {
+        let icons = Bundle.main.object(forInfoDictionaryKey: "CFBundleIcons") as? [String: Any]
+        let primary = icons?["CFBundlePrimaryIcon"] as? [String: Any]
+        let name = (primary?["CFBundleIconFiles"] as? [String])?.last
+        return name.flatMap { UIImage(named: $0) } ?? UIImage(systemName: "app.fill")!
+    }()
+
+    let title: String
+    let text: String
+    let image: NotificationImage
+    let symbol: String
+    let color: Color
+
+    var body: some View {
+        // Как на iOS: иконка слева, заголовок и текст, справа — время над картинкой.
+        HStack(alignment: .center, spacing: 12) {
+            Image(uiImage: Self.appIcon)
+                .resizable().frame(width: 38, height: 38)
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                if !text.isEmpty { Text(text).font(.system(size: 15)).lineLimit(2) }
+            }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("now").font(.footnote).foregroundStyle(.secondary)
+                Group {
+                    if image.exists, let ui = UIImage(contentsOfFile: image.url.path) {
+                        Image(uiImage: ui).resizable().scaledToFit()
+                    } else if !symbol.isEmpty {
+                        Image(systemName: symbol).resizable().scaledToFit().foregroundStyle(color)
+                    }
+                }
+                .frame(width: 26, height: 26)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(.tertiarySystemFill)))
+    }
 }

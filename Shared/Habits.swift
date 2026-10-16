@@ -48,6 +48,8 @@ struct Habit: Codable, Identifiable, Hashable {
     /// Заметка к самой привычке и показывать ли её поле (текст сохраняется и при скрытом поле).
     var habitNote = ""
     var showsNote = true
+    /// Текст уведомления вместо «Goal: N times a week» (пусто — по умолчанию).
+    var notificationSubtitle = ""
     /// Вредная привычка: серии считаются по дням, когда её НЕ было.
     var harmful = false
     /// В архиве: нет в списке и виджетах, история сохраняется.
@@ -60,6 +62,14 @@ struct Habit: Codable, Identifiable, Hashable {
     }
 
     var color: Color { Color(hex: colorHex) ?? .blue }
+
+    /// sRGB-компоненты цвета привычки.
+    var rgb: [Double] {
+        var s = colorHex.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count >= 6, let v = UInt64(s.prefix(6), radix: 16) else { return [0.2, 0.47, 0.96] }
+        return [Double((v >> 16) & 0xFF) / 255, Double((v >> 8) & 0xFF) / 255, Double(v & 0xFF) / 255]
+    }
 
     /// Название для показа.
     var title: String {
@@ -128,6 +138,7 @@ struct Habit: Codable, Identifiable, Hashable {
         notes = try c.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
         habitNote = try c.decodeIfPresent(String.self, forKey: .habitNote) ?? ""
         showsNote = try c.decodeIfPresent(Bool.self, forKey: .showsNote) ?? true
+        notificationSubtitle = try c.decodeIfPresent(String.self, forKey: .notificationSubtitle) ?? ""
         harmful = try c.decodeIfPresent(Bool.self, forKey: .harmful) ?? false
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
@@ -140,6 +151,9 @@ struct ReminderLink: Codable, Hashable {
     var reminderID: String
     var listID: String
     var titles: [String]
+    /// Последний известный срок повторяющегося напоминания («yyyy-MM-dd»): если срок
+    /// сдвинулся вперёд — напоминание выполнили (iOS 26 не оставляет выполненных копий).
+    var lastDue: String?
 }
 
 struct HabitDB: Codable {

@@ -27,9 +27,21 @@ enum ReminderSync {
     /// Подтягивает выполненные напоминания в историю привычек.
     static func sync(_ db: inout HabitDB, now: Date = Date()) async {
         guard hasAccess else { return }
+        // Долгоживущее хранилище кэширует напоминания — перечитываем свежие.
+        store.reset()
         // Первая синхронизация — за два года, дальше — с запасом от прошлой.
         let since = db.lastReminderSync.map { $0.addingTimeInterval(-3 * 86400) }
             ?? Calendar.current.date(byAdding: .year, value: -2, to: now)!
+        let lastSync = db.lastReminderSync ?? .distantPast
+
+        /// Засчитать день. Снятый в трекере день не возвращается от уже виденных выполнений,
+        /// но новое выполнение (после прошлой синхронизации) — свежее действие: оно засчитывается
+        /// всегда. Иначе однажды снятый день (например, сегодня при проверке) больше никогда
+        /// не отмечался из Reminders.
+        func credit(_ i: Int, _ key: String, fresh: Bool) {
+            if fresh { db.habits[i].removedDays.remove(key) }
+            if !db.habits[i].removedDays.contains(key) { db.habits[i].completions.insert(key) }
+        }
 
         for i in db.habits.indices where !db.habits[i].links.isEmpty {
             // Обновляем запомненные названия: переименование в Reminders не ломает поиск копий.
@@ -38,6 +50,17 @@ enum ReminderSync {
                 if let reminder = store.calendarItem(withIdentifier: link.reminderID) as? EKReminder {
                     if let title = reminder.title, !link.titles.contains(title) { db.habits[i].links[j].titles.append(title) }
                     db.habits[i].links[j].listID = reminder.calendar.calendarIdentifier
+                    // Повторяющееся напоминание при выполнении переезжает на следующий срок,
+                    // не оставляя выполненной копии: ловим сдвиг срока вперёд.
+                    if let due = reminder.dueDateComponents.flatMap({ Calendar.current.date(from: $0) }) {
+                        let dueKey = HabitDay.key(due)
+                        // Засчитываем, только если срок ушёл на другой (более поздний) день, а прежний
+                        // был не позже сегодняшнего: перенос «на позже сегодня» не считается.
+                        if let last = link.lastDue, dueKey > last, last <= HabitDay.key(now) {
+                            credit(i, HabitDay.dayKey(forMoment: min(reminder.lastModifiedDate ?? now, now)), fresh: true)
+                        }
+                        db.habits[i].links[j].lastDue = dueKey
+                    }
                 }
             }
             let links = db.habits[i].links
@@ -47,8 +70,7 @@ enum ReminderSync {
             for reminder in await fetch(predicate) {
                 guard let done = reminder.completionDate,
                       links.contains(where: { matches(reminder, $0) }) else { continue }
-                let key = HabitDay.dayKey(forMoment: done)
-                if !db.habits[i].removedDays.contains(key) { db.habits[i].completions.insert(key) }
+                credit(i, HabitDay.dayKey(forMoment: done), fresh: done > lastSync)
             }
         }
         db.lastReminderSync = now
@@ -83,7 +105,13 @@ enum ReminderSync {
 
 /// Отметка сегодняшнего дня — из виджета, уведомления и приложения.
 enum HabitActions {
-    /// Кнопка виджета: отметить «выполнено», если сегодня ещё не отмечено.
+    /// Кнопка виджета: не отмечено — «выполнено», отмечено — снять.
+    static func toggleToday(habitID: UUID, now: Date = Date()) {
+        guard let habit = HabitStorage.load().habits.first(where: { $0.id == habitID }) else { return }
+        mark(habitID: habitID, state: habit.state(HabitDay.today(now)) == .none ? .done : .none, now: now)
+    }
+
+    /// Отметить «выполнено», если сегодня ещё не отмечено.
     static func markToday(habitID: UUID, now: Date = Date()) {
         guard let habit = HabitStorage.load().habits.first(where: { $0.id == habitID }),
               habit.state(HabitDay.today(now)) == .none else { return }

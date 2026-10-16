@@ -61,9 +61,16 @@ enum AlertScheduler {
         content.interruptionLevel = .passive
         // Вложение iOS уже забрала себе — прикладываем картинку заново.
         let info = content.userInfo
-        let image: NotificationImage = info["habitID"] != nil ? .habit
-            : .forEvent(calendarID: info["calendarID"] as? String ?? "")
-        content.attachments = (image.attachmentCopy().flatMap { try? UNNotificationAttachment(identifier: "image", url: $0) }).map { [$0] } ?? []
+        let url: URL?
+        if let raw = info["habitID"] as? String,
+           let habit = HabitStorage.load().habits.first(where: { $0.id.uuidString == raw }) {
+            url = NotificationImage.habit.attachment(symbol: HabitSettings.symbol, rgb: habit.rgb)
+        } else {
+            let calID = info["calendarID"] as? String ?? ""
+            let rgb = EKEventStore().calendar(withIdentifier: calID).map { CalendarData.rgb(of: $0.cgColor) } ?? []
+            url = NotificationImage.forEvent(calendarID: calID).attachment(symbol: CalendarSettings.symbol, rgb: rgb)
+        }
+        content.attachments = (url.flatMap { try? UNNotificationAttachment(identifier: "image", url: $0) }).map { [$0] } ?? []
         // У привычки исходный запрос повторяющийся: новый id, чтобы не заменить расписание.
         var id = notification.request.identifier
         if let habitID = info["habitID"] as? String { id = "habit|\(habitID)|kept-\(UUID().uuidString)" }
@@ -127,7 +134,8 @@ enum AlertScheduler {
     private static func request(for event: EKEvent, alarmIndex: Int, fire: Date) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = NotificationTitle.make(event.title ?? "", prefix: CalendarSettings.prefix, separator: CalendarSettings.separator)
-        if let url = NotificationImage.forEvent(calendarID: event.calendar.calendarIdentifier).attachmentCopy(),
+        if let url = NotificationImage.forEvent(calendarID: event.calendar.calendarIdentifier)
+            .attachment(symbol: CalendarSettings.symbol, rgb: CalendarData.rgb(of: event.calendar.cgColor)),
            let attachment = try? UNNotificationAttachment(identifier: "image", url: url) {
             content.attachments = [attachment]
         }
@@ -207,12 +215,13 @@ enum HabitNotifier {
     private static func request(_ habit: Habit, minutes: Int) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = NotificationTitle.make(habit.title, prefix: HabitSettings.prefix, separator: HabitSettings.separator)
-        content.body = habit.weeklyGoal > 0 ? "Goal: \(habit.weeklyGoal) times a week" : "Time for your habit"
+        // Подзаголовок — только свой, если задан в настройках привычки.
+        content.body = habit.notificationSubtitle.trimmingCharacters(in: .whitespaces)
         content.sound = .default
         content.categoryIdentifier = category
         content.threadIdentifier = "habits"
         content.userInfo = ["habitID": habit.id.uuidString]
-        if let url = NotificationImage.habit.attachmentCopy(),
+        if let url = NotificationImage.habit.attachment(symbol: HabitSettings.symbol, rgb: habit.rgb),
            let attachment = try? UNNotificationAttachment(identifier: "image", url: url) {
             content.attachments = [attachment]
         }

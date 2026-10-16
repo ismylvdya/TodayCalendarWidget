@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 /// Название приложения в интерфейсе и текстах.
 #if os(iOS)
@@ -52,7 +55,11 @@ enum CalendarSettings {
         static let defaultDayEnd = "defaultDayEnd"
         static let prefix = "calendarNotificationPrefix"
         static let separator = "calendarNotificationSeparator"
+        static let symbol = "calendarNotificationSymbol"
     }
+
+    /// SF Symbol справа в уведомлении (в цвет календаря), если своей картинки нет.
+    static var symbol: String { d.string(forKey: Key.symbol) ?? "calendar" }
 
     static var prefix: String { d.string(forKey: Key.prefix) ?? "" }
     static var separator: String { d.string(forKey: Key.separator) ?? NotificationTitle.defaultSeparator }
@@ -74,7 +81,7 @@ enum CalendarSettings {
     /// После нажатия класть уведомление обратно в список.
     static var keepAfterTap: Bool { bool(Key.keepAfterTap, true) }
     static var removeWhenMovedLater: Bool { bool(Key.removeWhenMovedLater, true) }
-    static var removeWhenDeleted: Bool { bool(Key.removeWhenDeleted, false) }
+    static var removeWhenDeleted: Bool { bool(Key.removeWhenDeleted, true) }
     /// С какой давности данных показывать подпись «N min ago».
     static var staleLabelMinutes: Int { max(1, int(Key.staleLabelMinutes, 30)) }
     static var cursorColor: Color { Color(hex: d.string(forKey: Key.cursorHex) ?? defaultCursorHex) ?? .red }
@@ -106,10 +113,16 @@ enum HabitSettings {
         static let overIconDarker = "habitOverIconDarker"
         static let overIconDarkness = "habitOverIconDarkness"
         static let gridBottomMargin = "habitGridBottomMargin"
+        static let previewScale = "habitPreviewScale"
+        static let previewPlatter = "habitPreviewPlatter"
         static let previewMargin = "habitPreviewMargin"
         static let prefix = "habitNotificationPrefix"
         static let separator = "habitNotificationSeparator"
+        static let symbol = "habitNotificationSymbol"
     }
+
+    /// SF Symbol справа в уведомлении (в цвет привычки), если своей картинки нет.
+    static var symbol: String { d.string(forKey: Key.symbol) ?? "checkmark.circle.fill" }
 
     static var prefix: String { d.string(forKey: Key.prefix) ?? "Habit" }
     static var separator: String { d.string(forKey: Key.separator) ?? NotificationTitle.defaultSeparator }
@@ -136,9 +149,7 @@ enum HabitSettings {
     /// Размер шрифта однострочного названия на виджетах (двустрочное — на треть меньше).
     static var titleSize: Double { double(Key.titleSize, 24) }
     /// Ближе какого расстояния до низа экрана подложка сетки на странице привычки не опускается.
-    static var gridBottomMargin: Double { double(Key.gridBottomMargin, -11) }
-    /// Поле подложки вокруг дня в контекстном меню, pt.
-    static var previewMargin: Double { double(Key.previewMargin, 18) }
+    static var gridBottomMargin: Double { double(Key.gridBottomMargin, 1) }
 
     static var style: HabitStyle {
         HabitStyle(undoneOpacity: double(Key.undoneOpacity, 0.15),
@@ -229,7 +240,28 @@ struct NotificationImage {
         let copy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
         return (try? FileManager.default.copyItem(at: url, to: copy)) == nil ? nil : copy
     }
+
+    #if os(iOS)
+    /// Вложение для уведомления: своя картинка, иначе SF Symbol в заданном цвете.
+    func attachment(symbol: String, rgb: [Double]) -> URL? {
+        if let copy = attachmentCopy() { return copy }
+        guard !symbol.isEmpty, rgb.count >= 3,
+              let image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 120, weight: .semibold))?
+                .withTintColor(UIColor(red: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1), renderingMode: .alwaysOriginal)
+        else { return nil }
+        let format = UIGraphicsImageRendererFormat(); format.opaque = false; format.scale = 1
+        let side: CGFloat = 200
+        let png = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).pngData { _ in
+            let s = image.size, k = min(160 / s.width, 160 / s.height)
+            let w = s.width * k, h = s.height * k
+            image.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        return (try? png.write(to: url)) == nil ? nil : url
+    }
+    #endif
 }
+
 
 extension Color {
     /// «#RRGGBB» или «#RRGGBBAA».

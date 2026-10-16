@@ -9,13 +9,13 @@ enum FilesBackup {
         CalendarSettings.Key.alertsEnabled, CalendarSettings.Key.keepAfterTap, CalendarSettings.Key.removeWhenMovedLater,
         CalendarSettings.Key.removeWhenDeleted, CalendarSettings.Key.staleLabelMinutes, CalendarSettings.Key.cursorHex,
         CalendarSettings.Key.notificationTapOpensEvent, CalendarSettings.Key.defaultDayStart, CalendarSettings.Key.defaultDayEnd,
-        CalendarSettings.Key.prefix, CalendarSettings.Key.separator,
+        CalendarSettings.Key.prefix, CalendarSettings.Key.separator, CalendarSettings.Key.symbol, HabitSettings.Key.symbol,
         HabitSettings.Key.dayCutoffHour, HabitSettings.Key.widgetWeeks, HabitSettings.Key.buttonSize, HabitSettings.Key.buttonInset,
         HabitSettings.Key.gridInset, HabitSettings.Key.titleSize, HabitSettings.Key.undoneOpacity, HabitSettings.Key.partialPattern,
         HabitSettings.Key.stripeWidth, HabitSettings.Key.doneStripeOpacity, HabitSettings.Key.undoneStripeOpacity,
         HabitSettings.Key.partialSymbol, HabitSettings.Key.overSymbol, HabitSettings.Key.partialIconScale,
         HabitSettings.Key.overIconScale, HabitSettings.Key.overIconDarker, HabitSettings.Key.overIconDarkness,
-        HabitSettings.Key.gridBottomMargin, HabitSettings.Key.previewMargin, HabitSettings.Key.prefix, HabitSettings.Key.separator,
+        HabitSettings.Key.gridBottomMargin, HabitSettings.Key.previewScale, HabitSettings.Key.previewPlatter, HabitSettings.Key.previewMargin, HabitSettings.Key.prefix, HabitSettings.Key.separator,
     ]
 
     static func write() {
