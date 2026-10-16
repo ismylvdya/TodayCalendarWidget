@@ -39,8 +39,6 @@ struct Habit: Codable, Identifiable, Hashable {
     var overIconHex: String?
     /// Свой цвет значка заметки; nil — по умолчанию.
     var noteIconHex: String?
-    /// Время уведомлений — минуты от полуночи, до 5 в день.
-    var reminderTimes: [Int] = []
     /// Цель: сколько раз в неделю (0 — без цели).
     var weeklyGoal = 0
     /// Заметки к дням.
@@ -60,6 +58,14 @@ struct Habit: Codable, Identifiable, Hashable {
     }
 
     var color: Color { Color(hex: colorHex) ?? .blue }
+
+    /// sRGB-компоненты цвета привычки.
+    var rgb: [Double] {
+        var s = colorHex.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count >= 6, let v = UInt64(s.prefix(6), radix: 16) else { return [0.2, 0.47, 0.96] }
+        return [Double((v >> 16) & 0xFF) / 255, Double((v >> 8) & 0xFF) / 255, Double(v & 0xFF) / 255]
+    }
 
     /// Название для показа.
     var title: String {
@@ -123,7 +129,6 @@ struct Habit: Codable, Identifiable, Hashable {
         partialIconHex = try c.decodeIfPresent(String.self, forKey: .partialIconHex)
         overIconHex = try c.decodeIfPresent(String.self, forKey: .overIconHex)
         noteIconHex = try c.decodeIfPresent(String.self, forKey: .noteIconHex)
-        reminderTimes = try c.decodeIfPresent([Int].self, forKey: .reminderTimes) ?? []
         weeklyGoal = try c.decodeIfPresent(Int.self, forKey: .weeklyGoal) ?? 0
         notes = try c.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
         habitNote = try c.decodeIfPresent(String.self, forKey: .habitNote) ?? ""
@@ -140,6 +145,9 @@ struct ReminderLink: Codable, Hashable {
     var reminderID: String
     var listID: String
     var titles: [String]
+    /// Последний известный срок повторяющегося напоминания («yyyy-MM-dd»): если срок
+    /// сдвинулся вперёд — напоминание выполнили (iOS 26 не оставляет выполненных копий).
+    var lastDue: String?
 }
 
 struct HabitDB: Codable {
@@ -183,8 +191,12 @@ enum HabitStorage {
 
     /// Загружает базу; при первом запуске создаёт тестовую привычку.
     static func load() -> HabitDB {
-        if let data = try? Data(contentsOf: url), let db = try? JSONDecoder().decode(HabitDB.self, from: data) {
-            return db
+        if let data = try? Data(contentsOf: url) {
+            if let db = try? JSONDecoder().decode(HabitDB.self, from: data) { return db }
+            // База есть, но не читается: не затираем её новой — откладываем копию и сообщаем.
+            let copy = url.deletingLastPathComponent().appendingPathComponent("habits-unreadable-\(Int(Date().timeIntervalSince1970)).json")
+            try? FileManager.default.copyItem(at: url, to: copy)
+            SyncIssues.report("The habit database could not be read. A copy was saved as \(copy.lastPathComponent).")
         }
         let db = HabitDB(habits: [TestHabit.make()])
         save(db)
@@ -192,8 +204,11 @@ enum HabitStorage {
     }
 
     static func save(_ db: HabitDB) {
-        guard let data = try? JSONEncoder().encode(db) else { return }
-        try? data.write(to: url, options: .atomic)
+        do {
+            try JSONEncoder().encode(db).write(to: url, options: .atomic)
+        } catch {
+            SyncIssues.report("Habits could not be saved: \(error.localizedDescription)")
+        }
     }
 
     static func update(_ change: (inout HabitDB) -> Void) {
@@ -278,5 +293,18 @@ enum HabitGrid {
         let symbols = calendar.veryShortStandaloneWeekdaySymbols
         let first = calendar.firstWeekday - 1
         return Array(symbols[first...] + symbols[..<first])
+    }
+}
+
+/// Ошибки синхронизации, сохранения и удаления. Приложение показывает их алертом;
+/// в виджете сообщать некому — там они пропускаются.
+enum SyncIssues {
+    static var handler: (String) -> Void = { _ in }
+    /// Уже показанные (за запуск): одна и та же проблема не всплывает при каждой синхронизации.
+    private static var shown: Set<String> = []
+
+    static func report(_ message: String, once: Bool = false) {
+        if once { guard shown.insert(message).inserted else { return } }
+        handler(message)
     }
 }

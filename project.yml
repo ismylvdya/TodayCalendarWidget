@@ -75,7 +75,8 @@ targets:
     info:
       path: iOSApp/Info.plist
       properties:
-        CFBundleDisplayName: "Cal Enh & Hab"
+        CFBundleDisplayName: "Habits on Reminders"
+        CFBundleName: "Habits on Reminders"
         NSCalendarsFullAccessUsageDescription: The widget shows today's calendar events.
         NSRemindersFullAccessUsageDescription: Completed reminders are added to your habit history.
         ALTAppGroups: [group.com.chumbulev.TripleToday]
@@ -105,7 +106,7 @@ targets:
     info:
       path: iOSWidget/Info.plist
       properties:
-        CFBundleDisplayName: "Cal Enh & Hab"
+        CFBundleDisplayName: "Habits on Reminders"
         NSCalendarsFullAccessUsageDescription: The widget shows today's calendar events.
         NSRemindersFullAccessUsageDescription: Completed reminders are added to your habit history.
         ALTAppGroups: [group.com.chumbulev.TripleToday]

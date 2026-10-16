@@ -13,24 +13,14 @@ enum AlertScheduler {
     /// iOS держит не больше 64 запланированных уведомлений на приложение; оставляем запас.
     private static let limit = 60
 
-    /// Категории уведомлений: событие — «Delete event», привычка — Done / Partially Done / Overdone
-    /// (иконки — из настроек привычек). Регистрируются вместе: новый вызов заменяет все категории.
+    /// Категория уведомлений о событиях — с кнопкой «Delete event».
     static func registerCategory() {
         let delete = UNNotificationAction(identifier: deleteAction, title: "Delete event", options: [],
                                           icon: UNNotificationActionIcon(systemImageName: "checkmark.circle.fill"))
         // customDismissAction: смахивание приходит в приложение — и уведомление возвращается.
         let event = UNNotificationCategory(identifier: category, actions: [delete], intentIdentifiers: [],
                                            options: [.customDismissAction])
-        let style = HabitSettings.style
-        let habit = UNNotificationCategory(identifier: HabitNotifier.category, actions: [
-            UNNotificationAction(identifier: HabitNotifier.doneAction, title: "Done", options: [],
-                                 icon: UNNotificationActionIcon(systemImageName: "checkmark.circle.fill")),
-            UNNotificationAction(identifier: HabitNotifier.partialAction, title: "Partially Done", options: [],
-                                 icon: UNNotificationActionIcon(systemImageName: style.partialSymbol)),
-            UNNotificationAction(identifier: HabitNotifier.overAction, title: "Overdone", options: [],
-                                 icon: UNNotificationActionIcon(systemImageName: style.overSymbol)),
-        ], intentIdentifiers: [], options: [.customDismissAction])
-        UNUserNotificationCenter.current().setNotificationCategories([event, habit])
+        UNUserNotificationCenter.current().setNotificationCategories([event])
     }
 
     static func requestAuthorization() async {
@@ -47,9 +37,12 @@ enum AlertScheduler {
         let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(idPrefix) }
         center.removePendingNotificationRequests(withIdentifiers: pending)
         guard CalendarSettings.alertsEnabled else { return }
-        // Общий лимит iOS — 64; часть мест занимают уведомления о привычках.
-        let requests = upcomingAlerts(now: now).prefix(max(0, limit - HabitNotifier.scheduledCount)).map(\.request)
-        for request in requests { try? await center.add(request) }
+        let requests = upcomingAlerts(now: now).prefix(limit).map(\.request)
+        for request in requests {
+            do { try await center.add(request) } catch {
+                SyncIssues.report("Couldn't schedule event notifications: \(error.localizedDescription)", once: true)
+            }
+        }
         await removeDeliveredForMovedEvents()
     }
 
@@ -59,14 +52,7 @@ enum AlertScheduler {
         guard let content = notification.request.content.mutableCopy() as? UNMutableNotificationContent else { return }
         content.sound = nil
         content.interruptionLevel = .passive
-        // Вложение iOS уже забрала себе — прикладываем картинку заново.
-        let info = content.userInfo
-        let image: NotificationImage = info["habitID"] != nil ? .habit
-            : .forEvent(calendarID: info["calendarID"] as? String ?? "")
-        content.attachments = (image.attachmentCopy().flatMap { try? UNNotificationAttachment(identifier: "image", url: $0) }).map { [$0] } ?? []
-        // У привычки исходный запрос повторяющийся: новый id, чтобы не заменить расписание.
-        var id = notification.request.identifier
-        if let habitID = info["habitID"] as? String { id = "habit|\(habitID)|kept-\(UUID().uuidString)" }
+        let id = notification.request.identifier
         let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }
@@ -126,11 +112,7 @@ enum AlertScheduler {
 
     private static func request(for event: EKEvent, alarmIndex: Int, fire: Date) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
-        content.title = NotificationTitle.make(event.title ?? "", prefix: CalendarSettings.prefix, separator: CalendarSettings.separator)
-        if let url = NotificationImage.forEvent(calendarID: event.calendar.calendarIdentifier).attachmentCopy(),
-           let attachment = try? UNNotificationAttachment(identifier: "image", url: url) {
-            content.attachments = [attachment]
-        }
+        content.title = event.title ?? ""
         content.body = timeText(for: event) + (event.location.map { $0.isEmpty ? "" : "\n\($0)" } ?? "")
         content.sound = .default
         content.categoryIdentifier = category
@@ -165,8 +147,15 @@ enum AlertScheduler {
         let window = store.predicateForEvents(withStart: start.addingTimeInterval(-60),
                                               end: start.addingTimeInterval(60), calendars: nil)
         guard let event = store.events(matching: window).first(where: { $0.eventIdentifier == id && $0.startDate == start })
-                ?? store.event(withIdentifier: id) else { return }
-        try? store.remove(event, span: .thisEvent, commit: true)
+                ?? store.event(withIdentifier: id) else {
+            SyncIssues.report("The event was not found in Calendar — it may have already been deleted or moved.")
+            return
+        }
+        do {
+            try store.remove(event, span: .thisEvent, commit: true)
+        } catch {
+            SyncIssues.report("Couldn't delete “\(event.title ?? "")”: \(error.localizedDescription)")
+        }
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -177,65 +166,4 @@ enum AlertScheduler {
     }
 }
 
-/// Уведомления о привычках: в заданное время каждый день (до 5 раз), с кнопками отметки.
-enum HabitNotifier {
-    static let category = "HABIT"
-    static let doneAction = "HABIT_DONE"
-    static let partialAction = "HABIT_PARTIAL"
-    static let overAction = "HABIT_OVER"
-    private static let idPrefix = "habit|"
-
-    /// Сколько повторяющихся уведомлений займут привычки.
-    static var scheduledCount: Int {
-        HabitStorage.load().habits.filter { !$0.archived }.reduce(0) { $0 + min(5, $1.reminderTimes.count) }
-    }
-
-    /// Пересоздаёт уведомления всех привычек.
-    static func sync() async {
-        let center = UNUserNotificationCenter.current()
-        guard await center.notificationSettings().authorizationStatus == .authorized else { return }
-        AlertScheduler.registerCategory()
-        let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(idPrefix) }
-        center.removePendingNotificationRequests(withIdentifiers: pending)
-        for habit in HabitStorage.load().habits where !habit.archived {
-            for minutes in habit.reminderTimes.prefix(5) {
-                try? await center.add(request(habit, minutes: minutes))
-            }
-        }
-    }
-
-    private static func request(_ habit: Habit, minutes: Int) -> UNNotificationRequest {
-        let content = UNMutableNotificationContent()
-        content.title = NotificationTitle.make(habit.title, prefix: HabitSettings.prefix, separator: HabitSettings.separator)
-        content.body = habit.weeklyGoal > 0 ? "Goal: \(habit.weeklyGoal) times a week" : "Time for your habit"
-        content.sound = .default
-        content.categoryIdentifier = category
-        content.threadIdentifier = "habits"
-        content.userInfo = ["habitID": habit.id.uuidString]
-        if let url = NotificationImage.habit.attachmentCopy(),
-           let attachment = try? UNNotificationAttachment(identifier: "image", url: url) {
-            content.attachments = [attachment]
-        }
-        let trigger = UNCalendarNotificationTrigger(dateMatching: DateComponents(hour: minutes / 60, minute: minutes % 60), repeats: true)
-        return UNNotificationRequest(identifier: "\(idPrefix)\(habit.id.uuidString)|\(minutes)", content: content, trigger: trigger)
-    }
-
-    /// Кнопка в уведомлении: отметить сегодня (и напоминание в Reminders), убрать показанные
-    /// уведомления этой привычки.
-    static func handle(action: String, userInfo: [AnyHashable: Any]) async {
-        guard let raw = userInfo["habitID"] as? String, let id = UUID(uuidString: raw) else { return }
-        let state: HabitDayState = action == partialAction ? .partial : action == overAction ? .over : .done
-        HabitActions.mark(habitID: id, state: state)
-        await clearDelivered(habitID: id)
-        WidgetCenter.shared.reloadAllTimelines()
-    }
-
-    /// Убирает показанные уведомления привычки — когда сегодня уже отмечено.
-    static func clearDelivered(habitID: UUID) async {
-        let center = UNUserNotificationCenter.current()
-        let ids = await center.deliveredNotifications().map(\.request.identifier)
-            .filter { $0.hasPrefix("\(idPrefix)\(habitID.uuidString)|") }
-        center.removeDeliveredNotifications(withIdentifiers: ids)
-    }
-}
 #endif

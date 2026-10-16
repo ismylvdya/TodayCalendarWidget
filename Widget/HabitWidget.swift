@@ -50,7 +50,7 @@ struct HabitWidgetIntent: WidgetConfigurationIntent {
     @Parameter(title: "Habit")
     var habit: HabitEntity?
 
-    @Parameter(title: "Title size", default: .appDefault)
+    @Parameter(title: "Title font", default: .appDefault)
     var titleSize: TitleSize
 
     @Parameter(title: "Wrap Title", description: "Off: one line, the end fades out", default: false)
@@ -69,8 +69,9 @@ struct MarkHabitTodayIntent: AppIntent {
     init() {}
     init(habitID: UUID) { self.habitID = habitID.uuidString }
 
+    /// Сегодня не отмечено — отметить «выполнено»; уже отмечено — снять отметку.
     func perform() async throws -> some IntentResult {
-        if let id = UUID(uuidString: habitID) { HabitActions.markToday(habitID: id) }
+        if let id = UUID(uuidString: habitID) { HabitActions.toggleToday(habitID: id) }
         return .result()
     }
 }
@@ -97,7 +98,7 @@ struct HabitProvider: AppIntentTimelineProvider {
         let midnight = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now))!
         let entry = HabitEntry(date: now, habit: await habit(for: configuration), titleSize: configuration.titleSize.points,
                                wrapTitle: configuration.wrapTitle)
-        return Timeline(entries: [entry], policy: .after(min(midnight, now.addingTimeInterval(30 * 60))))
+        return Timeline(entries: [entry], policy: .after(min(midnight, now.addingTimeInterval(15 * 60))))
     }
 
     /// Выбранная привычка (после подтягивания отметок из Reminders); без выбора — первая в списке.
@@ -105,7 +106,6 @@ struct HabitProvider: AppIntentTimelineProvider {
         var db = HabitStorage.load()
         await ReminderSync.sync(&db)
         HabitStorage.save(db)
-        await HabitNotifier.sync()
         if let id = configuration.habit?.id, let habit = db.habits.first(where: { $0.id.uuidString == id }) { return habit }
         return db.habits.first { !$0.archived }
     }
@@ -142,15 +142,22 @@ struct HabitHeader: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            // Линия центровки названия на 1 pt выше середины кнопки.
+            .offset(y: -1)
             .widgetAccentable()
+            // Сегодня уже отмечено — кнопка снимает отметку.
+            let done = habit.state(HabitDay.today()) != .none
             Button(intent: MarkHabitTodayIntent(habitID: habit.id)) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: done ? "xmark.circle" : "checkmark.circle.fill")
                     .resizable()
                     .foregroundStyle(habit.color)
                     .frame(width: HabitSettings.buttonSize, height: HabitSettings.buttonSize)
             }
             .buttonStyle(.plain)
             .contentShape(Circle())
+            // Размер шрифта названия на кнопку не влияет.
+            .fixedSize()
+            .layoutPriority(1)
             .widgetAccentable()
         }
     }

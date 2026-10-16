@@ -1,6 +1,6 @@
 import Foundation
 
-/// Копии данных в «Файлы → На iPhone → Cal Enh & Hab»: привычки (JSON и CSV) и все настройки (JSON).
+/// Копии данных в «Файлы → На iPhone → Habits on Reminders»: привычки (JSON и CSV) и все настройки (JSON).
 enum FilesBackup {
     private static var folder: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
 
@@ -9,13 +9,12 @@ enum FilesBackup {
         CalendarSettings.Key.alertsEnabled, CalendarSettings.Key.keepAfterTap, CalendarSettings.Key.removeWhenMovedLater,
         CalendarSettings.Key.removeWhenDeleted, CalendarSettings.Key.staleLabelMinutes, CalendarSettings.Key.cursorHex,
         CalendarSettings.Key.notificationTapOpensEvent, CalendarSettings.Key.defaultDayStart, CalendarSettings.Key.defaultDayEnd,
-        CalendarSettings.Key.prefix, CalendarSettings.Key.separator,
         HabitSettings.Key.dayCutoffHour, HabitSettings.Key.widgetWeeks, HabitSettings.Key.buttonSize, HabitSettings.Key.buttonInset,
         HabitSettings.Key.gridInset, HabitSettings.Key.titleSize, HabitSettings.Key.undoneOpacity, HabitSettings.Key.partialPattern,
         HabitSettings.Key.stripeWidth, HabitSettings.Key.doneStripeOpacity, HabitSettings.Key.undoneStripeOpacity,
         HabitSettings.Key.partialSymbol, HabitSettings.Key.overSymbol, HabitSettings.Key.partialIconScale,
         HabitSettings.Key.overIconScale, HabitSettings.Key.overIconDarker, HabitSettings.Key.overIconDarkness,
-        HabitSettings.Key.gridBottomMargin, HabitSettings.Key.previewMargin, HabitSettings.Key.prefix, HabitSettings.Key.separator,
+        HabitSettings.Key.gridBottomMargin,
     ]
 
     static func write() {

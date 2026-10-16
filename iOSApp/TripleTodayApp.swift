@@ -33,6 +33,8 @@ final class AppRouter: ObservableObject {
     struct EventRef: Identifiable { let id: String; let start: Date }
     @Published var event: EventRef?
     @Published var habit: UUID?
+    /// Ошибка синхронизации или удаления — показывается алертом.
+    @Published var issue: String?
 }
 
 struct RootView: View {
@@ -42,6 +44,11 @@ struct RootView: View {
 
     var body: some View {
         MainView(openHabit: router.habit)
+            .alert("Something Went Wrong", isPresented: Binding(get: { router.issue != nil }, set: { if !$0 { router.issue = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(router.issue ?? "")
+            }
             .onOpenURL { url in
                 // Нажатие на календарный виджет (calshow:<дата>) — сразу в Calendar;
                 // на виджет привычки (todaycalendarwidget://habit/<id>) — на её страницу.
@@ -56,7 +63,6 @@ struct RootView: View {
                 if !ReminderSync.hasAccess { _ = await ReminderSync.requestAccess() }
                 // При каждом запуске: разрешение на уведомления (первый раз — с запросом) и синхронизация.
                 await AlertScheduler.requestAuthorization()
-                await HabitNotifier.sync()
                 await AlertScheduler.sync()
                 WidgetCenter.shared.reloadAllTimelines()
                 FilesBackup.write()
@@ -68,6 +74,7 @@ struct RootView: View {
                     await DebugSeed.seedAlertIfRequested(store: store)
                     await DebugSeed.moveSeededIfRequested(store: store)
                 await DebugSeed.seedReminderIfRequested()
+                await DebugSeed.dumpRemindersIfRequested()
                 await DebugSeed.testAttachmentIfRequested()
                 }
                 #endif
@@ -77,8 +84,7 @@ struct RootView: View {
                 guard phase == .active else { return }
                 WidgetCenter.shared.reloadAllTimelines()
                 Task {
-                    await HabitNotifier.sync()
-                    await AlertScheduler.sync()
+                        await AlertScheduler.sync()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .EKEventStoreChanged)) { _ in
@@ -108,6 +114,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        // Несколько ошибок подряд — в одном алерте.
+        SyncIssues.handler = { message in
+            Task { @MainActor in
+                let router = AppRouter.shared
+                router.issue = router.issue.map { $0.contains(message) ? $0 : $0 + "\n\n" + message } ?? message
+            }
+        }
         AlertScheduler.registerCategory()
         return true
     }
@@ -115,17 +128,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let info = response.notification.request.content.userInfo
         switch response.actionIdentifier {
-        case HabitNotifier.doneAction, HabitNotifier.partialAction, HabitNotifier.overAction:
-            await HabitNotifier.handle(action: response.actionIdentifier, userInfo: info)
-            await MainActor.run { FilesBackup.write() }
         case UNNotificationDismissActionIdentifier:
             // Смахнули — возвращаем (тихо).
             await AlertScheduler.keepAfterOpening(response.notification)
-        case UNNotificationDefaultActionIdentifier where info["habitID"] != nil:
-            await AlertScheduler.keepAfterOpening(response.notification)
-            if let raw = info["habitID"] as? String, let id = UUID(uuidString: raw) {
-                await MainActor.run { AppRouter.shared.habit = id }
-            }
         case AlertScheduler.deleteAction:
             AlertScheduler.deleteEvent(userInfo: info)
         case UNNotificationDefaultActionIdentifier:
@@ -175,6 +180,25 @@ struct TodayCalendarShortcuts: AppShortcutsProvider {
 /// Для проверки в симуляторе: запуск с аргументом `-SeedSampleEvents` добавляет
 /// в календарь по умолчанию тестовые события на сегодня (один раз).
 enum DebugSeed {
+    /// `-DumpReminders`: печатает напоминания (открытые и выполненные за неделю) и привязки привычек.
+    static func dumpRemindersIfRequested() async {
+        guard ProcessInfo.processInfo.arguments.contains("-DumpReminders") else { return }
+        let store = ReminderSync.store
+        store.reset()
+        func line(_ r: EKReminder) -> String {
+            let due = r.dueDateComponents.flatMap { Calendar.current.date(from: $0) }
+            return "\(r.calendarItemIdentifier) '\(r.title ?? "")' due=\(String(describing: due)) done=\(r.isCompleted) "
+                + "doneAt=\(String(describing: r.completionDate)) mod=\(String(describing: r.lastModifiedDate)) rec=\(r.recurrenceRules?.count ?? 0)"
+        }
+        let open = store.predicateForIncompleteReminders(withDueDateStarting: nil, ending: nil, calendars: nil)
+        let done = store.predicateForCompletedReminders(withCompletionDateStarting: Date().addingTimeInterval(-7 * 86400), ending: Date(), calendars: nil)
+        for (name, p) in [("OPEN", open), ("DONE", done)] {
+            let items: [EKReminder] = await withCheckedContinuation { c in store.fetchReminders(matching: p) { c.resume(returning: $0 ?? []) } }
+            for r in items { print("DUMP \(name) \(line(r))") }
+        }
+        for h in HabitStorage.load().habits { for l in h.links { print("DUMP LINK '\(h.name)' \(l.reminderID) lastDue=\(l.lastDue ?? "nil") titles=\(l.titles)") } }
+    }
+
     static func runIfRequested(store: EKEventStore) {
         guard ProcessInfo.processInfo.arguments.contains("-SeedSampleEvents"),
               EKEventStore.authorizationStatus(for: .event) == .fullAccess,

@@ -20,6 +20,15 @@ final class HabitStore: ObservableObject {
         persist()
     }
 
+    /// Потянуть вниз в списке: всё заново — база, Reminders, виджеты и уведомления о событиях.
+    func forceRefresh() async {
+        await refresh()
+        #if os(iOS)
+        await AlertScheduler.sync()
+        #endif
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     func add(_ habit: Habit) {
         db.habits.append(habit)
         persist()
@@ -50,15 +59,7 @@ final class HabitStore: ObservableObject {
         guard var habit = habit(id) else { return }
         habit.setState(state, day: day)
         update(habit)
-        if state != .none && day == HabitDay.today() {
-            ReminderSync.completeToday(habit)
-            Task { await HabitNotifier.clearDelivered(habitID: id) }
-        }
-    }
-
-    /// Изменилось время уведомлений или архив — пересоздать уведомления.
-    func syncNotifications() {
-        Task { await HabitNotifier.sync() }
+        if state != .none && day == HabitDay.today() { ReminderSync.completeToday(habit) }
     }
 
     private func persist() {

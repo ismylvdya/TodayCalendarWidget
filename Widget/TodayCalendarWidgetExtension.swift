@@ -405,6 +405,12 @@ struct SyncLabel: View {
     }
 }
 
+#if os(iOS)
+private let isPhone = true
+#else
+private let isPhone = false
+#endif
+
 struct EventBlock: View {
     let event: DayEvent
     let height: CGFloat
@@ -431,7 +437,10 @@ struct EventBlock: View {
                 if event.hasAlarm && height > 34 {
                     Image(systemName: "bell")
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(inverted ? HierarchicalShapeStyle.primary : .secondary)  // при инверсии выбивается целиком
+                        // Как текст события, но прозрачнее; при инверсии выбивается целиком.
+                        .foregroundStyle(inverted ? AnyShapeStyle(HierarchicalShapeStyle.primary)
+                                         : mode == .fullColor && scheme == .dark && isPhone ? AnyShapeStyle(color.opacity(0.7))
+                                         : AnyShapeStyle(.secondary))
                         .padding(.top, 2)
                 }
             }
@@ -553,8 +562,11 @@ struct OpenCalendarIntent: AppIntent {
 }
 
 /// Calendar на iOS открывается сразу на дне, переданном секундами от 1 января 2001.
+/// Calendar открывается так, что указанный момент оказывается ниже верха экрана примерно на час,
+/// поэтому просим момент на час раньше — тогда на экране «сейчас».
 private func calendarURL(for date: Date) -> URL {
-    URL(string: "calshow:\(Int(date.timeIntervalSinceReferenceDate))")!
+    let date = date.addingTimeInterval(-3600)
+    return URL(string: "calshow:\(Int(date.timeIntervalSinceReferenceDate))")!
 }
 
 /// На iOS виджет открывает Calendar напрямую, на сегодняшнем дне.
