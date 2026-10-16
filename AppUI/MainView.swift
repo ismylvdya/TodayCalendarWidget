@@ -46,6 +46,13 @@ struct PageTitle: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// Высота заголовка: одна строка или две.
+    static func height(_ title: String, sideInset: CGFloat = PageTitle.sideInset) -> CGFloat {
+        let full = UIScreen.main.bounds.width - 32
+        let lines: CGFloat = split(title, firstWidth: full - 2 * sideInset).1.isEmpty ? 1 : 2
+        return lines * font.lineHeight
+    }
+
     /// Первая строка — столько слов, сколько помещается в `firstWidth` (или до явного переноса);
     /// остальное — второй частью.
     static func split(_ title: String, firstWidth: CGFloat) -> (String, String) {
@@ -70,18 +77,129 @@ extension UIFont {
     }
 }
 
-/// Заголовок страницы первой строкой списка или формы.
+/// Короткий заголовок в панели, когда большой ушёл под неё (как у стандартного большого
+/// заголовка iOS), и плотнее, чем у системы, затухание содержимого под панелью.
+struct CollapsingTitle: ViewModifier {
+    let title: String
+    /// Когда большой заголовок почти весь ушёл под панель, показываем короткий.
+    let threshold: CGFloat
+    /// Короткий заголовок уменьшается, пока не влезет в строку; это — наименьший масштаб.
+    var minScale: CGFloat = 0.5
+    @State private var away = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > threshold } action: { _, value in
+                withAnimation(.easeInOut(duration: 0.2)) { away = value }
+            }
+            .overlay(alignment: .top) { TopFade() }
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(title)
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .lineLimit(1).minimumScaleFactor(minScale)
+                        .opacity(away ? 1 : 0)
+                }
+            }
+    }
+}
+
+/// Затухание под панелью: фон страницы, плотный у верха и сходящий на нет к низу панели.
+struct TopFade: View {
+    var body: some View {
+        GeometryReader { g in
+            let top = g.safeAreaInsets.top
+            // Только над панелью: ниже стоит большой заголовок, его не притеняем.
+            LinearGradient(stops: [
+                .init(color: Color(.systemGroupedBackground).opacity(0.85), location: 0),
+                .init(color: Color(.systemGroupedBackground).opacity(0.5), location: 0.75),
+                .init(color: Color(.systemGroupedBackground).opacity(0), location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            .frame(height: top)
+            .offset(y: -top)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    /// `bigTitle` — текст большого заголовка (по нему — сколько в нём строк).
+    func collapsingTitle(_ title: String, bigTitle: String? = nil, minScale: CGFloat = 0.5) -> some View {
+        modifier(CollapsingTitle(title: title, threshold: PageTitle.height(bigTitle ?? title) * 0.75, minScale: minScale))
+    }
+
+    /// Страница-список с большим заголовком: заголовок рисуется поверх списка (на месте пустой
+    /// строки `PageTitleRow`) и всегда виден — строку списка система иногда не рисовала
+    /// (при обновлении и после него на её месте оставалась пустота).
+    func listPageTitle(_ title: String, sideInset: CGFloat, rowY: CGFloat?) -> some View {
+        modifier(FloatingPageTitle(title: title, sideInset: sideInset, rowY: rowY))
+    }
+}
+
+/// Большой заголовок поверх списка: идёт за своей строкой, а когда её нет — за прокруткой.
+struct FloatingPageTitle: ViewModifier {
+    let title: String
+    let sideInset: CGFloat
+    /// Верх строки заголовка в списке (nil — ещё не известен).
+    let rowY: CGFloat?
+    @State private var offset: CGFloat = 0
+    @State private var offsetAtRowY: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .coordinateSpace(name: PageTitleRow.space)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, value in offset = value }
+            .onChange(of: rowY) { offsetAtRowY = offset }
+            .overlay(alignment: .top) {
+                if let rowY {
+                    // Как содержимое страницы привычки: просто уезжает под панель и скрывается там,
+                    // без отдельного затухания.
+                    GeometryReader { g in
+                        // Высота панели — из безопасной области самого чтения (без ignoresSafeArea,
+                        // иначе она нулевая). Слой поднят на неё, чтобы маска накрывала и панель.
+                        let top = g.safeAreaInsets.top
+                        PageTitle(title, sideInset: sideInset)
+                            .padding(.horizontal, 16)
+                            .offset(y: rowY - (offset - offsetAtRowY))
+                            .frame(width: g.size.width, height: g.size.height + top, alignment: .top)
+                            // Как у содержимого под панелью на странице привычки: виден до низа
+                            // панели, гаснет к кнопке «назад», у Dynamic Island его уже нет.
+                            .mask(alignment: .top) {
+                                VStack(spacing: 0) {
+                                    LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.45),
+                                                           .init(color: .black, location: 1)],
+                                                   startPoint: .top, endPoint: .bottom)
+                                        .frame(height: top)
+                                    Color.black
+                                }
+                            }
+                            .offset(y: -top)
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+/// Место большого заголовка первой строкой списка или формы: сам заголовок невидим
+/// (его рисует `listPageTitle` поверх списка), строка только держит место и сообщает положение.
 struct PageTitleRow: View {
+    static let space = "pageTitle"
     let title: String
     /// Подъём заголовка вложенных экранов до уровня заголовка на главном.
     var raise: CGFloat
-    init(_ title: String, raise: CGFloat = PageTitle.subpageRaise) { self.title = title; self.raise = raise }
+    @Binding var y: CGFloat?
+    init(_ title: String, raise: CGFloat = PageTitle.subpageRaise, y: Binding<CGFloat?>) {
+        self.title = title; self.raise = raise; _y = y
+    }
 
     var body: some View {
         // Вложенные экраны: первая строка не заходит под кнопку «назад», справа — так же.
-        // Подъём — отрицательным верхним полем всего списка (.pageTitleRaise()), а не строки:
-        // строка с отрицательным отступом обрезала верх заголовка.
+        // Подъём — отрицательным верхним полем всего списка, а не строки: строка с
+        // отрицательным отступом обрезала верх заголовка.
         PageTitle(title, sideInset: raise > 0 ? PageTitle.sideInset : 0)
+            .hidden()
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.space)).minY } action: { y = $0 }
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 4, trailing: 0))
     }
@@ -102,11 +220,12 @@ struct MainView: View {
     /// Заметка к сегодняшнему дню из меню чекбокса.
     @State private var noteHabit: UUID?
     @State private var noteText = ""
-    /// Большой заголовок ушёл под панель — показать короткий в панели, как у iOS.
-    @State private var titleScrolledAway = false
     /// Новая причина из меню дня: для какой привычки и дня.
     @State private var reasonFor: (UUID, Date)?
     @State private var reasonText = ""
+    /// Длинное название не влезает в стандартный заголовок — свой, с переносом перед «&».
+    private let mainTitle = appName.replacingOccurrences(of: " & ", with: "\n& ")
+    @State private var titleY: CGFloat?
     /// Открыть привычку по ссылке из виджета или уведомления.
     var openHabit: UUID?
 
@@ -114,7 +233,7 @@ struct MainView: View {
         NavigationStack(path: $path) {
             List {
                 // Длинное название не влезает в стандартный заголовок — свой, с переносом перед «&».
-                PageTitleRow(appName.replacingOccurrences(of: " & ", with: "\n& "), raise: 0)
+                PageTitleRow(mainTitle, raise: 0, y: $titleY)
                 Section {
                     // Порядок меняется удержанием и перетаскиванием строки.
                     ForEach(store.habits.filter { !$0.archived && !$0.isTrashed }) { habit in
@@ -177,24 +296,12 @@ struct MainView: View {
             // Потянуть вниз — на любой странице одинаково: база, Reminders, виджеты, уведомления.
             .refreshable { await store.forceRefresh() }
             // Заголовок выше на половину высоты его шрифта (34 pt).
-            .contentMargins(.top, -17, for: .scrollContent)
+            .contentMargins(.top, -PageTitle.font.pointSize / 2, for: .scrollContent)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            // Размытие над заголовком при прокрутке, как на вложенных экранах: там оно есть из-за
-            // кнопки «назад», здесь — из-за короткого заголовка в панели и мягкого края.
-            // Заголовок — строка списка: при прокрутке он уезжает под пустую панель и пропадал
-            // совсем. Как у стандартного большого заголовка — в панели появляется короткий.
-            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > 60 } action: { _, away in
-                withAnimation(.easeInOut(duration: 0.2)) { titleScrolledAway = away }
-            }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(PageTitle.split(appName.replacingOccurrences(of: " & ", with: "\n& "), firstWidth: .infinity).0)
-                        .font(.system(.headline, design: .rounded)).lineLimit(1)
-                        .opacity(titleScrolledAway ? 1 : 0)
-                }
-            }
-            .modifier(SoftTopEdge())
+            .listPageTitle(mainTitle, sideInset: 0, rowY: titleY)
+            // Короткий — вся фраза в одну строку, шрифт уменьшается, пока она не влезет.
+            .collapsingTitle(appName, bigTitle: mainTitle, minScale: 0.3)
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .habit(let id): HabitDetailView(store: store, habitID: id)
@@ -410,17 +517,6 @@ struct ListDot: View {
     }
 }
 
-/// Мягкий верхний край прокрутки (iOS 26).
-struct SoftTopEdge: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(iOS 26.0, *) {
-            content.scrollEdgeEffectStyle(.soft, for: .top)
-        } else {
-            content
-        }
-    }
-}
-
 /// Чекбокс «сегодня выполнено» слева от привычки, как в Reminders.
 /// У «Twice a day»: сделано — заполненный, дважды — заполненный в окружности.
 /// Долгое нажатие — то же меню, что у дня в сетке (для сегодняшнего дня).
@@ -468,10 +564,11 @@ struct TodayCheckbox: View {
 struct ArchiveView: View {
     @ObservedObject var store: HabitStore
     var trash = false
+    @State private var titleY: CGFloat?
 
     var body: some View {
         List {
-            PageTitleRow(trash ? "Trash" : "Archive")
+            PageTitleRow(trash ? "Trash" : "Archive", y: $titleY)
             Section {
                 ForEach(store.habits.filter { trash ? $0.isTrashed : $0.archived && !$0.isTrashed }) { habit in
                     NavigationLink(value: Route.habit(habit.id)) { HabitRow(habit: habit) }
@@ -479,6 +576,8 @@ struct ArchiveView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .listPageTitle(trash ? "Trash" : "Archive", sideInset: PageTitle.sideInset, rowY: titleY)
+        .collapsingTitle(trash ? "Trash" : "Archive")
         .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
         .refreshable { await store.forceRefresh() }
     }
@@ -886,6 +985,7 @@ struct HabitDetailView: View {
             .refreshable { await store.forceRefresh() }
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { pageBottom = $0 }
             .navigationBarTitleDisplayMode(.inline)
+            .collapsingTitle(habit.title)
             .alert(noteDay.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Note",
                    isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
                 TextField("Note", text: $noteText)
@@ -1005,6 +1105,9 @@ struct GrowingHistoryGrid: View {
     @State private var taps = 0
     /// Счётчик долгих нажатий — вибрация при открытии меню (у обычного меню своей нет).
     @State private var longPresses = 0
+    /// Сколько недель в ленте сейчас: растёт вместе с `weekCount`, но не уменьшается, пока
+    /// страница открыта.
+    @State private var shownWeeks: Int?
 
     private var cell: CGFloat { max(10, (width - 2 * pad - 6 * gap) / 7) }
 
@@ -1049,7 +1152,7 @@ struct GrowingHistoryGrid: View {
                     // Недели и дни опознаются по дате, а не по номеру: иначе контекстное меню
                     // показывало чужую дату и ставило отметку не на тот день.
                     VStack(spacing: gap) {
-                        ForEach(HabitGrid.weeks(count: weekCount, endingAt: today), id: \.first) { week in
+                        ForEach(HabitGrid.weeks(count: shownWeeks ?? weekCount, endingAt: today), id: \.first) { week in
                             HStack(spacing: gap) {
                                 ForEach(0..<7, id: \.self) { i in
                                     if let day = week[i] {
@@ -1073,9 +1176,21 @@ struct GrowingHistoryGrid: View {
             }
             .scrollPosition($position)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
-            // Добавились ранние полгода (отметили день раньше самого раннего) — прокрутка держится
-            // от сегодняшнего дня, а не от начала ленты.
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .onAppear { if shownWeeks == nil { shownWeeks = weekCount } }
+            // Отметили день раньше самого раннего — сверху добавляются недели (лента всегда на
+            // полгода раньше первой отметки), а прокрутка сдвигается ровно на их высоту: отмеченный
+            // день остаётся на месте. Убрали раннюю отметку — лента, пока страница открыта, не
+            // укорачивается (иначе всё под пальцем прыгнуло бы).
+            .onChange(of: weekCount) { _, new in
+                guard let shown = shownWeeks, new > shown else { return }
+                let target = offset + CGFloat(new - shown) * (cell + gap)
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    shownWeeks = new
+                    position.scrollTo(y: target)
+                }
+            }
             .scrollIndicators(.hidden)
             .onScrollGeometryChange(for: [CGFloat].self) {
                 [$0.contentOffset.y, $0.contentSize.height, $0.contentInsets.bottom, $0.visibleRect.maxY, $0.containerSize.height]
@@ -1433,6 +1548,7 @@ struct HabitStats {
 
 struct HabitSettingsView: View {
     @ObservedObject var store: HabitStore
+    @State private var titleY: CGFloat?
     @AppStorage(HabitSettings.Key.dayCutoffHour, store: AppGroup.defaults) private var cutoff = 0
     @AppStorage(HabitSettings.Key.titleSize, store: AppGroup.defaults) private var titleSize = 24.0
     @AppStorage(HabitSettings.Key.widgetWeeks, store: AppGroup.defaults) private var weeks = 4.0
@@ -1502,7 +1618,7 @@ struct HabitSettingsView: View {
 
     var body: some View {
         Form {
-            PageTitleRow("Habits on Reminders Settings")
+            PageTitleRow("Habits on Reminders Settings", y: $titleY)
 
             // Синхронизация — потянуть вниз; здесь только запрос доступа, если его нет.
             if !hasAccess {
@@ -1569,9 +1685,6 @@ struct HabitSettingsView: View {
             }
             .listSectionSpacing(18)
 
-            SkipReasonsSection(store: store)
-                .listSectionSpacing(18)
-
             Section {
                 VStack(alignment: .leading) {
                     Text("Bottom margin for Grid Feed: \(Int(gridBottomMargin)) pt")
@@ -1580,6 +1693,11 @@ struct HabitSettingsView: View {
             } footer: {
                 Text("How close to the bottom of the screen the grid card on a habit page may grow.")
             }
+            .listSectionSpacing(18)
+
+            SkipReasonsSection(store: store)
+
+            BannerSection()
 
             Section {
                 preview([.partial])
@@ -1740,6 +1858,8 @@ struct HabitSettingsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .listPageTitle("Habits on Reminders Settings", sideInset: PageTitle.sideInset, rowY: titleY)
+        .collapsingTitle("Habits on Reminders Settings")
         .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
         .refreshable { await store.forceRefresh() }
         .onDisappear { WidgetCenter.shared.reloadAllTimelines() }
@@ -1747,6 +1867,27 @@ struct HabitSettingsView: View {
 }
 
 /// Имя SF Symbol текстом и сам символ.
+/// Плашка сверху после действий: ширина и форма углов.
+struct BannerSection: View {
+    @AppStorage(ToastSettings.Key.width, store: AppGroup.defaults) private var width = ToastSettings.defaultWidth
+
+    var body: some View {
+        Section {
+            // Одно значение — ширина в pt: ползунком или кнопками ±1.
+            VStack(alignment: .leading) {
+                ValueStepper("Banner width:", shown: "\(Int(width))", after: "pt", value: $width,
+                             in: ToastSettings.widthRange, step: 1)
+                Slider(value: $width, in: ToastSettings.widthRange, step: 1)
+            }
+            Button("Show Banner") { Toast.show("This is how banners look after an action") }
+        } header: {
+            RoundedHeader("Banner")
+        } footer: {
+            Text("The banner at the top after an action: it stays 10 seconds, tap it or swipe it up to close.")
+        }
+    }
+}
+
 /// Причины несделанных дней: общий список для всех привычек, значок вопроса и уведомление
 /// о повторяющейся причине.
 struct SkipReasonsSection: View {
@@ -1805,6 +1946,7 @@ struct SymbolField: View {
 
 struct CalendarSettingsView: View {
     @ObservedObject var store: HabitStore
+    @State private var titleY: CGFloat?
     @AppStorage(CalendarSettings.Key.alertsEnabled, store: AppGroup.defaults) private var alertsEnabled = true
     @AppStorage(CalendarSettings.Key.keepAfterTap, store: AppGroup.defaults) private var keepAfterTap = true
     @AppStorage(CalendarSettings.Key.keepAfterSwipe, store: AppGroup.defaults) private var keepAfterSwipe = true
@@ -1823,7 +1965,7 @@ struct CalendarSettingsView: View {
 
     var body: some View {
         Form {
-            PageTitleRow("Calendar Enhancer Settings")
+            PageTitleRow("Calendar Enhancer Settings", y: $titleY)
             Section {
                 Toggle("Alert Notifications", isOn: $alertsEnabled)
                 Toggle("Keep Notification After Tap", isOn: $keepAfterTap)
@@ -1873,6 +2015,8 @@ struct CalendarSettingsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .listPageTitle("Calendar Enhancer Settings", sideInset: PageTitle.sideInset, rowY: titleY)
+        .collapsingTitle("Calendar Enhancer Settings")
         .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
         .refreshable { await store.forceRefresh() }
         .onDisappear { WidgetCenter.shared.reloadAllTimelines() }

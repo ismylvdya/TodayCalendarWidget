@@ -48,8 +48,19 @@ struct Toast: Equatable {
     }
 }
 
+/// Ширина плашки — в настройках.
+enum ToastSettings {
+    enum Key {
+        static let width = "toastWidth"
+    }
+    /// Ширина по умолчанию: кнопка «назад» слева остаётся открытой.
+    static let defaultWidth = 255.0
+    static var widthRange: ClosedRange<Double> { 160...Double(UIScreen.main.bounds.width) - 16 }
+}
+
 struct ToastView: View {
     let toast: Toast
+    @AppStorage(ToastSettings.Key.width, store: AppGroup.defaults) private var width = ToastSettings.defaultWidth
 
     var body: some View {
         HStack(spacing: 8) {
@@ -57,11 +68,15 @@ struct ToastView: View {
                 .foregroundStyle(toast.isError ? .orange : .green)
             Text(toast.text).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
         }
+        // Ровно заданной ширины, а не по тексту (иначе ширина менялась скачками — по переносам).
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.regularMaterial, in: Capsule())
         .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
-        .padding(.horizontal, 24)
+        // Уже экрана: кнопка «назад» слева остаётся открытой, текст переносится в высоту.
+        .frame(width: min(max(width, ToastSettings.widthRange.lowerBound), ToastSettings.widthRange.upperBound))
+
     }
 }
 
@@ -76,9 +91,13 @@ struct RootView: View {
                 if let toast = router.toast {
                     ToastView(toast: toast)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                        // Висит 10 секунд; раньше — нажатием или смахиванием вверх.
                         .onTapGesture { withAnimation { router.toast = nil } }
+                        .gesture(DragGesture(minimumDistance: 10).onEnded { value in
+                            if value.translation.height < -10 { withAnimation { router.toast = nil } }
+                        })
                         .task(id: toast.id) {
-                            try? await Task.sleep(for: .seconds(toast.isError ? 4 : 2.5))
+                            try? await Task.sleep(for: .seconds(10))
                             if router.toast?.id == toast.id { withAnimation { router.toast = nil } }
                         }
                 }

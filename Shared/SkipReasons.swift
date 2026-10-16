@@ -1,5 +1,6 @@
 import Foundation
 #if os(iOS)
+import UIKit
 import UserNotifications
 #endif
 
@@ -98,6 +99,9 @@ extension Habit {
 #if os(iOS)
 /// Уведомление: одна причина несколько дней подряд — пора менять привычку, а не себя.
 enum SkipPatternAlert {
+    /// Начало заголовка — сразу видно, что это о долгом пропуске.
+    private static let titlePrefix = "「Long Gap」:  "
+
     /// Уведомление на серию шлём один раз: помним её первый день.
     private static func sentKey(_ habit: Habit, _ reason: UUID) -> String { "skipAlert|\(habit.id)|\(reason)" }
 
@@ -113,13 +117,42 @@ enum SkipPatternAlert {
         guard AppGroup.defaults.string(forKey: key) != start else { return }
         AppGroup.defaults.set(start, forKey: key)
 
+        post(title: titlePrefix + "\(habit.title): “\(reason.title)” \(streak) days in a row", body: reason.kind.tip,
+             rgb: habit.rgb, habitID: habit.id, id: "skip|\(habit.id)|\(start)")
+    }
+
+    /// Уведомление с картинкой справа: знак вопроса в цвете привычки.
+    static func post(title: String, body: String, rgb: [Double], habitID: UUID?, id: String) {
         let content = UNMutableNotificationContent()
-        content.title = "\(habit.title): “\(reason.title)” \(streak) days in a row"
-        content.body = reason.kind.tip
+        content.title = title
+        content.body = body
         content.sound = .default
-        content.userInfo = ["habitID": habit.id.uuidString]
-        let request = UNNotificationRequest(identifier: "skip|\(habit.id)|\(start)", content: content, trigger: nil)
+        if let habitID { content.userInfo = ["habitID": habitID.uuidString] }
+        if let url = questionImage(rgb: rgb), let attachment = try? UNNotificationAttachment(identifier: "image", url: url) {
+            content.attachments = [attachment]
+        }
+        let request = UNNotificationRequest(identifier: id, content: content, trigger: nil)
         Task { try? await UNUserNotificationCenter.current().add(request) }
+    }
+
+    /// SF Symbol «questionmark» в цвете привычки — PNG во временной папке (iOS переносит
+    /// вложение к себе, файл после этого не нужен).
+    private static func questionImage(rgb: [Double]) -> URL? {
+        guard rgb.count >= 3,
+              let symbol = UIImage(systemName: "questionmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 120, weight: .bold))?
+                .withTintColor(UIColor(red: rgb[0], green: rgb[1], blue: rgb[2], alpha: 1), renderingMode: .alwaysOriginal)
+        else { return nil }
+        let side: CGFloat = 200
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        format.scale = 1
+        let png = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).pngData { _ in
+            let size = symbol.size, k = min(150 / size.width, 150 / size.height)
+            let w = size.width * k, h = size.height * k
+            symbol.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        return (try? png.write(to: url)) == nil ? nil : url
     }
 }
 #endif
