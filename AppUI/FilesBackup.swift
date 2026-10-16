@@ -7,7 +7,7 @@ enum FilesBackup {
     /// Все ключи настроек приложения.
     private static let settingKeys: [String] = [
         CalendarSettings.Key.alertsEnabled, CalendarSettings.Key.keepAfterTap, CalendarSettings.Key.removeWhenMovedLater,
-        CalendarSettings.Key.removeWhenDeleted, CalendarSettings.Key.staleLabelMinutes, CalendarSettings.Key.cursorHex,
+        CalendarSettings.Key.removeWhenDeleted, CalendarSettings.Key.staleLabelMinutes, CalendarSettings.Key.cursorHex, CalendarSettings.Key.cursorOverEventOpacity,
         CalendarSettings.Key.notificationTapOpensEvent, CalendarSettings.Key.defaultDayStart, CalendarSettings.Key.defaultDayEnd,
         HabitSettings.Key.dayCutoffHour, HabitSettings.Key.widgetWeeks, HabitSettings.Key.buttonSize, HabitSettings.Key.buttonInset,
         HabitSettings.Key.gridInset, HabitSettings.Key.titleSize, HabitSettings.Key.undoneOpacity, HabitSettings.Key.partialPattern,
@@ -15,6 +15,8 @@ enum FilesBackup {
         HabitSettings.Key.partialSymbol, HabitSettings.Key.overSymbol, HabitSettings.Key.partialIconScale,
         HabitSettings.Key.overIconScale, HabitSettings.Key.overIconDarker, HabitSettings.Key.overIconDarkness,
         HabitSettings.Key.gridBottomMargin,
+        HabitSettings.Key.twicePattern, HabitSettings.Key.twiceSymbol, HabitSettings.Key.twiceIconScale,
+        HabitSettings.Key.twiceInnerSize, HabitSettings.Key.twiceDarker, HabitSettings.Key.twiceDarkness,
     ]
 
     static func write() {

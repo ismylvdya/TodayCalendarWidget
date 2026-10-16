@@ -4,6 +4,8 @@ import SwiftUI
 
 /// Привязка напоминания к привычке: поиск по названию среди всех незавершённых напоминаний.
 struct ReminderPickerView: View {
+    /// Уже привязанные напоминания (к любой привычке) — в списке неактивны.
+    var linked: Set<String> = []
     let onPick: (ReminderLink) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var hasAccess = ReminderSync.hasAccess
@@ -40,7 +42,8 @@ struct ReminderPickerView: View {
                             if reminder.hasRecurrenceRules { Image(systemName: "repeat").foregroundStyle(.secondary) }
                         }
                     }
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(linked.contains(reminder.calendarItemIdentifier) ? .secondary : .primary)
+                    .disabled(linked.contains(reminder.calendarItemIdentifier))
                 }
             }
             .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Reminder name")

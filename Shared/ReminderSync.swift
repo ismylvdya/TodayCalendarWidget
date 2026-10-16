@@ -75,10 +75,23 @@ enum ReminderSync {
             let lists = store.calendars(for: .reminder).filter { list in links.contains { $0.listID == list.calendarIdentifier } }
             guard !lists.isEmpty else { continue }
             let predicate = store.predicateForCompletedReminders(withCompletionDateStarting: since, ending: now, calendars: lists)
+            // Выполнения по дням: у «Twice a day» два за день (два напоминания или одно,
+            // выполненное дважды) — день «дважды».
+            var perDay: [String: (count: Int, fresh: Bool)] = [:]
             for reminder in await fetch(predicate) {
                 guard let done = reminder.completionDate,
                       links.contains(where: { matches(reminder, $0) }) else { continue }
-                credit(i, HabitDay.dayKey(forMoment: done), fresh: done > lastSync)
+                let key = HabitDay.dayKey(forMoment: done)
+                credit(i, key, fresh: done > lastSync)
+                let old = perDay[key] ?? (0, false)
+                perDay[key] = (old.count + 1, old.fresh || done > lastSync)
+            }
+            if db.habits[i].twiceADay {
+                for (key, day) in perDay where day.count >= 2 && day.fresh && db.habits[i].completions.contains(key) {
+                    db.habits[i].partialDays.remove(key)
+                    db.habits[i].overDays.remove(key)
+                    db.habits[i].twiceDays.insert(key)
+                }
             }
         }
         db.lastReminderSync = now
@@ -89,21 +102,30 @@ enum ReminderSync {
         return reminder.calendar.calendarIdentifier == link.listID && link.titles.contains(reminder.title ?? "")
     }
 
-    /// Отмечает выполненными привязанные напоминания на сегодня (или просроченные).
+    /// Отмечает выполненными `count` привязанных напоминаний на сегодня (или просроченных) —
+    /// по одному, начиная с самого раннего срока: одна отметка в трекере — одно напоминание.
     /// Единственное, что трекер меняет в Reminders.
-    static func completeToday(_ habit: Habit, now: Date = Date()) {
-        guard hasAccess else { return }
+    static func completeNext(_ habit: Habit, count: Int = 1, now: Date = Date()) {
+        guard hasAccess, count > 0 else { return }
+        for _ in 0..<count { completeEarliest(habit, now: now) }
+    }
+
+    private static func completeEarliest(_ habit: Habit, now: Date) {
         let endOfToday = Calendar.current.date(byAdding: .day, value: 1, to: Calendar.current.startOfDay(for: now))!
-        for link in habit.links {
+        // Повторяющееся напоминание после выполнения переезжает на следующий срок — перечитываем.
+        store.reset()
+        let open: [(EKReminder, Date)] = habit.links.compactMap { link in
             guard let reminder = store.calendarItem(withIdentifier: link.reminderID) as? EKReminder,
-                  !reminder.isCompleted else { continue }
-            if let due = reminder.dueDateComponents.flatMap({ Calendar.current.date(from: $0) }), due >= endOfToday { continue }
+                  !reminder.isCompleted else { return nil }
+            let due = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) } ?? .distantPast
+            return due < endOfToday ? (reminder, due) : nil
+        }
+        guard let reminder = open.min(by: { $0.1 < $1.1 })?.0 else { return }
+        do {
             reminder.isCompleted = true
-            do {
-                try store.save(reminder, commit: true)
-            } catch {
-                SyncIssues.report("Couldn't complete “\(reminder.title ?? "")” in Reminders: \(error.localizedDescription)")
-            }
+            try store.save(reminder, commit: true)
+        } catch {
+            SyncIssues.report("Couldn't complete “\(reminder.title ?? "")” in Reminders: \(error.localizedDescription)")
         }
     }
 
@@ -120,10 +142,10 @@ enum ReminderSync {
 
 /// Отметка сегодняшнего дня — из виджета, уведомления и приложения.
 enum HabitActions {
-    /// Кнопка виджета: не отмечено — «выполнено», отмечено — снять.
+    /// Кнопка виджета: как нажатие по дню (у «Twice a day» — сделано, дважды, снять).
     static func toggleToday(habitID: UUID, now: Date = Date()) {
         guard let habit = HabitStorage.load().habits.first(where: { $0.id == habitID }) else { return }
-        mark(habitID: habitID, state: habit.state(HabitDay.today(now)) == .none ? .done : .none, now: now)
+        mark(habitID: habitID, state: habit.nextTap(habit.state(HabitDay.today(now))), now: now)
     }
 
     /// Отметить «выполнено», если сегодня ещё не отмечено.
@@ -133,16 +155,21 @@ enum HabitActions {
         mark(habitID: habitID, state: .done, now: now)
     }
 
-    /// Поставить сегодня состояние `state`; напоминание в Reminders тоже отмечается выполненным.
+    /// Поставить сегодня состояние `state`; на каждый новый раз в Reminders отмечается
+    /// выполненным одно напоминание.
     static func mark(habitID: UUID, state: HabitDayState, now: Date = Date()) {
         var marked: Habit?
+        var added = 0
         HabitStorage.update { db in
             guard let i = db.habits.firstIndex(where: { $0.id == habitID }) else { return }
-            db.habits[i].setState(state, day: HabitDay.today(now))
+            let today = HabitDay.today(now)
+            let before = db.habits[i].state(today).units
+            db.habits[i].setState(state, day: today)
+            added = state.units - before
             marked = db.habits[i]
         }
         #if os(iOS)
-        if let marked, state != .none { ReminderSync.completeToday(marked, now: now) }
+        if let marked, added > 0 { ReminderSync.completeNext(marked, count: added, now: now) }
         #endif
     }
 }

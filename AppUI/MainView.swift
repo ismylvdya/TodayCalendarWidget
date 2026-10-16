@@ -5,12 +5,17 @@ import UniformTypeIdentifiers
 import WidgetKit
 
 /// Подзаголовок раздела скруглённым шрифтом — как названия списков в Reminders.
+/// Цвет везде один (как в заголовках списков на главной), начало — на 34 pt от края экрана,
+/// как у чекбокса на главной (18 pt от края плашки): в списке заголовок и так отступает на 16.
 struct RoundedHeader: View {
     let title: String
-    init(_ title: String) { self.title = title }
+    var inset: CGFloat = 2
+    init(_ title: String, inset: CGFloat = 2) { self.title = title; self.inset = inset }
 
     var body: some View {
-        Text(title).font(.system(.title3, design: .rounded).weight(.bold)).foregroundStyle(.secondary).textCase(nil)
+        Text(title).font(.system(.title3, design: .rounded).weight(.bold))
+            .foregroundStyle(Color(.tertiaryLabel)).textCase(nil)
+            .padding(.leading, inset)
     }
 }
 
@@ -106,8 +111,8 @@ struct MainView: View {
                     // Порядок меняется удержанием и перетаскиванием строки.
                     ForEach(store.habits.filter { !$0.archived }) { habit in
                         HStack(spacing: 12) {
-                            TodayCheckbox(habit: habit) { done in
-                                store.set(habit.id, day: HabitDay.today(), state: done ? .done : .none)
+                            TodayCheckbox(habit: habit) {
+                                store.set(habit.id, day: HabitDay.today(), state: habit.nextTap(habit.state(HabitDay.today())))
                             }
                             NavigationLink(value: Route.habit(habit.id)) { HabitRow(habit: habit) }
                         }
@@ -115,7 +120,7 @@ struct MainView: View {
                     .onMove { store.moveActive(from: $0, to: $1) }
                     Button { showingNewHabit = true } label: { Label("New Habit", systemImage: "plus") }
                 } header: {
-                    RoundedHeader("Habits").padding(.leading, -16)
+                    RoundedHeader("Habits")
                 }
                 .listSectionSpacing(18)
                 Section {
@@ -134,7 +139,7 @@ struct MainView: View {
                 Section {
                     NavigationLink(value: Route.calendarSettings) { PlainLabel("Calendar Enhancer Settings", systemImage: "gear") }
                 } header: {
-                    RoundedHeader("Calendar").padding(.leading, -16)
+                    RoundedHeader("Calendar")
                 }
             }
             // Потянуть вниз — на любой странице одинаково: база, Reminders, виджеты, уведомления.
@@ -170,20 +175,134 @@ struct PlainLabel: View {
     }
 }
 
-/// Чекбокс «сегодня выполнено» слева от привычки, как в Reminders.
-struct TodayCheckbox: View {
-    let habit: Habit
-    let toggle: (Bool) -> Void
+/// Вложенная прокрутка страницы привычки. Высота сетки = от её прокрутки до конца ленты,
+/// поэтому свернуть сетку = докрутить её вниз. Сдвиги страницы вниз, пока сетка выше
+/// обычной, забираются у страницы и отдаются сетке (прямо в UIKit: программная прокрутка
+/// SwiftUI во время жеста не срабатывает).
+final class NestedScrolls {
+    weak var grid: UIScrollView?
+    /// Обычная высота подложки сетки.
+    var gridBase: CGFloat = 0
+    private weak var page: UIScrollView?
+    private var observation: NSKeyValueObservation?
+    private var lastY: CGFloat = 0
+    private var adjusting = false
+
+    func attachPage(_ scrollView: UIScrollView) {
+        guard scrollView !== page else { return }
+        page = scrollView
+        lastY = scrollView.contentOffset.y
+        observation = scrollView.observe(\.contentOffset) { [weak self] sv, _ in self?.pageMoved(sv) }
+    }
+
+    private func pageMoved(_ page: UIScrollView) {
+        guard !adjusting else { return }
+        let y = page.contentOffset.y
+        let top = -page.adjustedContentInset.top
+        // Только прокрутка вниз и только ниже верха страницы (не отскок после «потянуть вниз»).
+        let delta = y - max(lastY, top)
+        lastY = y
+        guard delta > 0, let grid else { return }
+        // Сколько ещё докрутить сетку, чтобы её высота стала обычной.
+        let rest = grid.contentSize.height + grid.adjustedContentInset.bottom - gridBase - grid.contentOffset.y
+        let take = min(delta, max(0, rest))
+        guard take > 0.5 else { return }
+        adjusting = true
+        grid.contentOffset.y += take
+        page.contentOffset.y = y - take
+        adjusting = false
+        lastY = page.contentOffset.y
+    }
+}
+
+/// Находит ближайший UIScrollView над собой (прокрутку, внутри которой стоит).
+struct ScrollViewFinder: UIViewRepresentable {
+    let found: (UIScrollView) -> Void
+
+    func makeUIView(context: Context) -> FinderView {
+        let view = FinderView()
+        view.found = found
+        view.isUserInteractionEnabled = false
+        return view
+    }
+
+    func updateUIView(_ view: FinderView, context: Context) { view.found = found }
+
+    final class FinderView: UIView {
+        var found: (UIScrollView) -> Void = { _ in }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            var view = superview
+            while let v = view, !(v is UIScrollView) { view = v.superview }
+            if let scroll = view as? UIScrollView { found(scroll) }
+        }
+    }
+}
+
+/// Степпер, у которого меняющееся значение в названии — в серой плашке, как поле ввода
+/// (только не редактируется).
+struct ValueStepper<V: Strideable>: View {
+    let before: String
+    let shown: String
+    var after = ""
+    @Binding var value: V
+    let range: ClosedRange<V>
+    let step: V.Stride
+
+    init(_ before: String, shown: String, after: String = "", value: Binding<V>, in range: ClosedRange<V>, step: V.Stride) {
+        self.before = before; self.shown = shown; self.after = after
+        _value = value; self.range = range; self.step = step
+    }
 
     var body: some View {
-        let done = habit.state(HabitDay.today()) != .none
-        Button { toggle(!done) } label: {
-            Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 24))
-                .foregroundStyle(habit.color)
+        Stepper(value: $value, in: range, step: step) {
+            HStack(spacing: 6) {
+                Text(before)
+                Text(shown).monospacedDigit()
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color(.tertiarySystemFill)))
+                if !after.isEmpty { Text(after) }
+            }
+        }
+    }
+}
+
+/// Кружок цвета списка Reminders (значков списков EventKit не отдаёт).
+struct ListDot: View {
+    let listID: String
+
+    var body: some View {
+        if let list = ReminderSync.store.calendar(withIdentifier: listID) {
+            Circle().fill(Color(cgColor: list.cgColor)).frame(width: 8, height: 8)
+        }
+    }
+}
+
+/// Чекбокс «сегодня выполнено» слева от привычки, как в Reminders.
+/// У «Twice a day»: сделано — заполненный, дважды — заполненный в окружности.
+struct TodayCheckbox: View {
+    let habit: Habit
+    let tap: () -> Void
+
+    var body: some View {
+        let state = habit.state(HabitDay.today())
+        let twice = habit.twiceADay && state == .twice
+        Button(action: tap) {
+            ZStack {
+                if twice {
+                    Circle().strokeBorder(habit.color, lineWidth: 2.25).frame(width: 30, height: 30)
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 20))
+                } else {
+                    Image(systemName: state == .none ? "circle" : "checkmark.circle.fill").font(.system(size: 24))
+                }
+            }
+            .frame(width: 30, height: 30)
+            .foregroundStyle(habit.color)
         }
         .buttonStyle(.borderless)
-        .sensoryFeedback(.impact(weight: .light), trigger: done)
+        .sensoryFeedback(.impact(weight: .light), trigger: state)
     }
 }
 
@@ -237,7 +356,11 @@ struct NewHabitView: View {
             Form {
                 Section {
                     Button { choosingReminder = true } label: {
-                        Label(link == nil ? "Link a Reminder…" : "Linked: \(link!.titles.last ?? "")", systemImage: "link")
+                        if let link {
+                            HStack { ListDot(listID: link.listID); Text("Linked: \(link.titles.last ?? "")") }
+                        } else {
+                            Label("Link a Reminder…", systemImage: "link")
+                        }
                     }
                 } footer: {
                     Text("Without a reminder the habit is marked only in this app, its notifications and widgets.")
@@ -264,7 +387,9 @@ struct NewHabitView: View {
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty && link == nil)
                 }
             }
-            .sheet(isPresented: $choosingReminder) { ReminderPickerView { link = $0 } }
+            .sheet(isPresented: $choosingReminder) {
+                ReminderPickerView(linked: Set(store.habits.flatMap(\.links).map(\.reminderID) + [link?.reminderID].compactMap { $0 })) { link = $0 }
+            }
         }
     }
 }
@@ -279,7 +404,7 @@ struct Card<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let title { RoundedHeader(title).padding(.horizontal, 4) }
+            if let title { RoundedHeader(title, inset: 18) }
             VStack(alignment: .leading, spacing: 14) { content }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -350,10 +475,12 @@ struct SelectRow<Value: Hashable>: View {
 struct HexField: View {
     let title: String
     @Binding var hex: String
+    /// С прозрачностью (#RRGGBBAA) или без (#RRGGBB).
+    var alpha = true
 
     var body: some View {
         HStack {
-            InputRow(title: title, placeholder: "#RRGGBBAA", text: $hex, monospaced: true, capitalized: true)
+            InputRow(title: title, placeholder: alpha ? "#RRGGBBAA" : "#RRGGBB", text: $hex, monospaced: true, capitalized: true)
             Circle().fill(Color(hex: hex) ?? .clear).frame(width: 18, height: 18)
                 .overlay(Circle().strokeBorder(.secondary.opacity(0.3)))
         }
@@ -368,7 +495,7 @@ struct OwnColorField: View {
     let set: (String?) -> Void
 
     var body: some View {
-        Toggle("\(title): own color", isOn: Binding(get: { hex != nil }, set: { set($0 ? fallback : nil) }))
+        Toggle(title, isOn: Binding(get: { hex != nil }, set: { set($0 ? fallback : nil) }))
         if let hex {
             ColorPicker("Color", selection: Binding(get: { Color(hex: hex) ?? .white }, set: { set($0.hexString) }), supportsOpacity: true)
             HexField(title: "Hex", hex: Binding(get: { hex }, set: { if Color(hex: $0) != nil { set($0) } }))
@@ -391,6 +518,9 @@ struct HabitDetailView: View {
     @State private var noteText = ""
     /// Нижняя граница видимой области страницы — до неё может расти подложка сетки.
     @State private var pageBottom: CGFloat = 800
+    /// Прокрутки страницы и сетки (UIKit): пока сетка раскрыта больше обычного, прокрутка
+    /// страницы вниз сначала сворачивает её, и только потом листает страницу.
+    @State private var scrolls = NestedScrolls()
 
     var body: some View {
         if let habit = store.habit(habitID) {
@@ -424,14 +554,15 @@ struct HabitDetailView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, -PageTitle.subpageRaise)
+                    .background(ScrollViewFinder { scrolls.attachPage($0) })
 
-                    GrowingHistoryGrid(habit: habit, pageBottom: pageBottom,
+                    GrowingHistoryGrid(habit: habit, pageBottom: pageBottom, scrolls: scrolls,
                                        setState: { day, state in store.set(habitID, day: day, state: state) },
                                        editNote: { day in noteText = habit.note(day) ?? ""; noteDay = day })
 
                     // Заметка к привычке: поле во всю ширину, растёт по тексту.
                     if habit.showsNote {
-                        TextField("Note", text: Binding(get: { habit.habitNote }, set: { var h = habit; h.habitNote = $0; store.update(h) }),
+                        TextField("Description", text: Binding(get: { habit.habitNote }, set: { var h = habit; h.habitNote = $0; store.update(h) }),
                                   axis: .vertical)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 12)
@@ -477,7 +608,7 @@ struct HabitDetailView: View {
                 Button("Cancel", role: .cancel) { noteDay = nil }
             }
             .sheet(isPresented: $choosingReminder) {
-                ReminderPickerView { picked in
+                ReminderPickerView(linked: Set(store.habits.flatMap(\.links).map(\.reminderID))) { picked in
                     var h = habit
                     if !h.links.contains(where: { $0.reminderID == picked.reminderID }) { h.links.append(picked) }
                     store.update(h)
@@ -498,16 +629,32 @@ struct HabitDetailView: View {
             SelectRow(title: "Habit Type", options: [(false, "Good"), (true, "Bad")],
                       selection: Binding(get: { habit.harmful }, set: { var h = habit; h.harmful = $0; store.update(h) }))
             Divider()
-            Stepper(habit.weeklyGoal == 0 ? "Weekly goal: off" : "Weekly goal: \(habit.weeklyGoal) times",
-                    value: Binding(get: { habit.weeklyGoal }, set: { var h = habit; h.weeklyGoal = $0; store.update(h) }), in: 0...7)
+            // Выключили — дни «дважды» остаются в истории, но считаются и рисуются как сделанные.
+            Toggle("Twice a day", isOn: Binding(get: { habit.twiceADay }, set: {
+                var h = habit; h.twiceADay = $0
+                if !$0 { h.weeklyGoal = min(h.weeklyGoal, 7) }
+                store.update(h)
+            }))
             Divider()
-            Toggle("Show Note", isOn: Binding(get: { habit.showsNote }, set: { var h = habit; h.showsNote = $0; store.update(h) }))
+            ValueStepper("Weekly goal:", shown: habit.weeklyGoal == 0 ? "off" : "\(habit.weeklyGoal)", after: habit.weeklyGoal == 0 ? "" : "times",
+                         value: Binding(get: { habit.weeklyGoal }, set: { var h = habit; h.weeklyGoal = $0; store.update(h) }), in: 0...(habit.twiceADay ? 14 : 7), step: 1)
             Divider()
-            OwnColorField(title: "Partially Done Icon", hex: habit.partialIconHex) { var h = habit; h.partialIconHex = $0; store.update(h) }
+            Toggle("Show Description", isOn: Binding(get: { habit.showsNote }, set: { var h = habit; h.showsNote = $0; store.update(h) }))
             Divider()
-            OwnColorField(title: "Overdone Icon", hex: habit.overIconHex) { var h = habit; h.overIconHex = $0; store.update(h) }
-            Divider()
-            OwnColorField(title: "Note Icon", hex: habit.noteIconHex, fallback: "#8E8E93FF") { var h = habit; h.noteIconHex = $0; store.update(h) }
+            // Подгруппа: заголовок — как обычная строка, переключатели под ним — с отступом.
+            Text("Own color for")
+            Group {
+                OwnColorField(title: "Partially Done Icon", hex: habit.partialIconHex) { var h = habit; h.partialIconHex = $0; store.update(h) }
+                Divider()
+                OwnColorField(title: "Overdone Icon", hex: habit.overIconHex) { var h = habit; h.overIconHex = $0; store.update(h) }
+                Divider()
+                if habit.twiceADay {
+                    OwnColorField(title: "Twice Mark", hex: habit.twiceIconHex) { var h = habit; h.twiceIconHex = $0; store.update(h) }
+                    Divider()
+                }
+                OwnColorField(title: "Note Icon", hex: habit.noteIconHex, fallback: "#8E8E93FF") { var h = habit; h.noteIconHex = $0; store.update(h) }
+            }
+            .padding(.leading, 20)
 
         }
     }
@@ -517,6 +664,7 @@ struct HabitDetailView: View {
              footer: "Linking a new reminder keeps the whole history under this habit. Unlinking or deleting never changes Reminders.") {
             ForEach(habit.links, id: \.reminderID) { link in
                 HStack {
+                    ListDot(listID: link.listID)
                     VStack(alignment: .leading) {
                         Text(link.titles.last ?? "Reminder")
                         if link.titles.count > 1 {
@@ -544,6 +692,8 @@ struct HabitDetailView: View {
 struct GrowingHistoryGrid: View {
     let habit: Habit
     let pageBottom: CGFloat
+    /// Связь с прокруткой страницы (сворачивание раскрытой сетки).
+    let scrolls: NestedScrolls
     let setState: (Date, HabitDayState) -> Void
     let editNote: (Date) -> Void
 
@@ -567,6 +717,8 @@ struct GrowingHistoryGrid: View {
     @State private var position = ScrollPosition(edge: .bottom)
     /// Счётчик нажатий по дням — для отклика вибрацией.
     @State private var taps = 0
+    /// Счётчик долгих нажатий — вибрация при открытии меню (у обычного меню своей нет).
+    @State private var longPresses = 0
 
     private var cell: CGFloat { max(10, (width - 2 * pad - 6 * gap) / 7) }
 
@@ -606,6 +758,7 @@ struct GrowingHistoryGrid: View {
                     Text("Half a year before the first marked day")
                         .font(.caption).foregroundStyle(.secondary)
                         .padding(.vertical, 10)
+                        .background(ScrollViewFinder { scrolls.grid = $0 })
                     // Недели и дни опознаются по дате, а не по номеру: иначе контекстное меню
                     // показывало чужую дату и ставило отметку не на тот день.
                     VStack(spacing: gap) {
@@ -622,6 +775,7 @@ struct GrowingHistoryGrid: View {
                         }
                     }
                     .sensoryFeedback(.impact(weight: .light), trigger: taps)
+                    .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
                 }
                 .padding(.horizontal, pad)
                 .padding(.bottom, pad)
@@ -640,6 +794,7 @@ struct GrowingHistoryGrid: View {
                 if abs(v[3] - (v[1] + v[2])) < 2 { ready = true } else { position.scrollTo(edge: .bottom) }
             }
             .frame(height: height)
+            .onChange(of: base, initial: true) { scrolls.gridBase = base }
             .mask(edgeFade(top: offset > 1, bottom: contentHeight + bottomInset - offset - height > 1))
         }
         .padding(.top, pad)
@@ -650,7 +805,8 @@ struct GrowingHistoryGrid: View {
 
     private func cellView(_ day: Date, today: Date, style: HabitStyle, size: CGFloat) -> HabitCell {
         HabitCell(state: habit.state(day), isToday: day == today, color: habit.color, size: size, style: style,
-                  partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, hasNote: habit.note(day) != nil,
+                  partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, twiceIconHex: habit.twiceIconHex,
+                  hasNote: habit.note(day) != nil,
                   noteIconHex: habit.noteIconHex,
                   opaqueBackground: Color(.secondarySystemGroupedBackground))
     }
@@ -668,7 +824,8 @@ struct GrowingHistoryGrid: View {
         return Menu {
             Section(day.formatted(date: .complete, time: .omitted)) {
                 // Текущее состояние — бледное (пункт неактивен: выбрать его снова ничего не меняет).
-                ForEach(HabitDayState.allCases) { option in
+                // «Дважды» в меню нет — только повторным нажатием.
+                ForEach(HabitDayState.allCases.filter { $0 != .twice }) { option in
                     Button { setState(day, option) } label: {
                         Label { Text(option.title) } icon: { menuIcon(option, style, dim: option == state) }
                     }
@@ -686,10 +843,12 @@ struct GrowingHistoryGrid: View {
                 .contentShape(.contextMenuPreview, shape)
         } primaryAction: {
             taps += 1
-            setState(day, state == .none ? .done : .none)
+            setState(day, habit.nextTap(state))
         }
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
+        // Долгое нажатие открывает меню — отмечаем его вибрацией, как у контекстного меню.
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.35).onEnded { _ in longPresses += 1 })
         .contentShape(.interaction, shape)
         .contentShape(.contextMenuPreview, shape)
         .contentShape(.hoverEffect, shape)
@@ -734,6 +893,7 @@ struct GrowingHistoryGrid: View {
         case .done: AnyView(squircle.fill())
         case .partial: AnyView(Image(systemName: style.partialSymbol).resizable().scaledToFit())
         case .over: AnyView(Image(systemName: style.overSymbol).resizable().scaledToFit())
+        case .twice: AnyView(squircle.fill())
         }
         let renderer = ImageRenderer(content: content.foregroundStyle(.black).frame(width: side, height: side))
         renderer.scale = 3
@@ -793,6 +953,7 @@ struct StatsCard: View {
             HStack {
                 stat("Current streak", "\(s.currentStreak) d")
                 stat("Longest streak", "\(s.longestStreak) d")
+                if habit.twiceADay { stat("Twice streak", "\(s.twiceStreak) d") }
             }
             HStack {
                 stat("Last 7 days", percent(s.last7))
@@ -801,6 +962,7 @@ struct StatsCard: View {
             }
             HStack {
                 stat("Done days", "\(s.doneDays)")
+                if habit.twiceADay { stat("Twice", "\(s.twiceDays)") }
                 stat("Partially", "\(s.partialDays)")
                 stat("Overdone", "\(s.overDays)")
             }
@@ -854,6 +1016,8 @@ struct HabitStats {
     var currentStreak = 0, longestStreak = 0
     var last7 = 0.0, last30 = 0.0, allTime = 0.0
     var doneDays = 0, partialDays = 0, overDays = 0, thisWeek = 0
+    /// Только у «Twice a day»: дни «дважды» и их текущая серия.
+    var twiceDays = 0, twiceStreak = 0
     var byWeekday: [(String, Int)] = []
     var byMonth: [(String, Int)] = []
 
@@ -879,9 +1043,19 @@ struct HabitStats {
             longestStreak = max(longestStreak, run)
         }
 
-        last7 = Double((0..<7).filter { isDone(day($0)) }.count) / 7
-        last30 = Double((0..<30).filter { isDone(day($0)) }.count) / 30
-        allTime = Double(done.count) / Double(max(1, total))
+        // Проценты — от максимума: у «Twice a day» день «дважды» — 100%, один раз — 50%.
+        let perDay = Double(habit.twiceADay ? 2 : 1)
+        func units(_ back: Int) -> Int { habit.units(day(back)) }
+        last7 = Double((0..<7).reduce(0) { $0 + units($1) }) / (7 * perDay)
+        last30 = Double((0..<30).reduce(0) { $0 + units($1) }) / (30 * perDay)
+        allTime = Double((0..<total).reduce(0) { $0 + units($1) }) / (Double(max(1, total)) * perDay)
+
+        if habit.twiceADay {
+            func twice(_ d: Date) -> Bool { habit.state(d) == .twice }
+            var j = twice(today) ? 0 : 1
+            while j < total, twice(day(j)) { twiceStreak += 1; j += 1 }
+            twiceDays = habit.twiceDays.intersection(done).count
+        }
 
         doneDays = done.count
         partialDays = habit.partialDays.count
@@ -889,10 +1063,11 @@ struct HabitStats {
         thisWeek = habit.doneInWeek(of: today)
 
         let symbols = HabitGrid.weekdaySymbols()
+        // По дням недели — в разах: у «Twice a day» день «дважды» даёт 2.
         var counts = Array(repeating: 0, count: 7)
         for d in dates {
             let index = (cal.component(.weekday, from: d) - cal.firstWeekday + 7) % 7
-            counts[index] += 1
+            counts[index] += max(1, habit.units(d))
         }
         byWeekday = zip(symbols, counts).map { ($0, $1) }
 
@@ -929,6 +1104,12 @@ struct HabitSettingsView: View {
     @AppStorage(HabitSettings.Key.overIconDarker, store: AppGroup.defaults) private var overDarker = true
     @AppStorage(HabitSettings.Key.overIconDarkness, store: AppGroup.defaults) private var overDarkness = 0.65
     @AppStorage(HabitSettings.Key.gridBottomMargin, store: AppGroup.defaults) private var gridBottomMargin = 1.0
+    @AppStorage(HabitSettings.Key.twicePattern, store: AppGroup.defaults) private var twicePattern = TwicePattern.innerSquare.rawValue
+    @AppStorage(HabitSettings.Key.twiceSymbol, store: AppGroup.defaults) private var twiceSymbol = "2.circle.fill"
+    @AppStorage(HabitSettings.Key.twiceIconScale, store: AppGroup.defaults) private var twiceIconScale = 0.65
+    @AppStorage(HabitSettings.Key.twiceInnerSize, store: AppGroup.defaults) private var twiceInnerSize = 0.55
+    @AppStorage(HabitSettings.Key.twiceDarker, store: AppGroup.defaults) private var twiceDarker = true
+    @AppStorage(HabitSettings.Key.twiceDarkness, store: AppGroup.defaults) private var twiceDarkness = 0.65
     @State private var hasAccess = ReminderSync.hasAccess
 
     private var previewStyle: HabitStyle {
@@ -937,7 +1118,11 @@ struct HabitSettingsView: View {
                    partialSymbol: partialSymbol.isEmpty ? "tortoise.fill" : partialSymbol,
                    overSymbol: overSymbol.isEmpty ? "bolt.fill" : overSymbol,
                    partialIconScale: partialIconScale, overIconScale: overIconScale,
-                   overIconDarker: overDarker, overIconDarkness: overDarkness)
+                   overIconDarker: overDarker, overIconDarkness: overDarkness,
+                   twicePattern: TwicePattern(rawValue: twicePattern) ?? .innerSquare,
+                   twiceSymbol: twiceSymbol.isEmpty ? "2.circle.fill" : twiceSymbol,
+                   twiceIconScale: twiceIconScale, twiceInnerSize: twiceInnerSize,
+                   twiceDarker: twiceDarker, twiceDarkness: twiceDarkness)
     }
 
     /// Все четыре состояния дня с текущими настройками.
@@ -968,7 +1153,8 @@ struct HabitSettingsView: View {
             }
 
             Section {
-                Stepper(cutoff == 0 ? "A day ends at midnight" : "A day ends at \(cutoff):00 at night", value: $cutoff, in: 0...6)
+                ValueStepper("A day ends at", shown: cutoff == 0 ? "midnight" : "\(cutoff):00", after: cutoff == 0 ? "" : "at night",
+                             value: $cutoff, in: 0...6, step: 1)
             } header: {
                 RoundedHeader("End of Day")
             } footer: {
@@ -976,11 +1162,11 @@ struct HabitSettingsView: View {
             }
 
             Section {
-                Stepper("Title size: \(Int(titleSize)) pt", value: $titleSize, in: 12...36)
-                Stepper("Weeks shown: \(Int(weeks))", value: $weeks, in: 1...8)
-                Stepper("Button diameter: \(Int(buttonSize)) pt", value: $buttonSize, in: 24...60)
-                Stepper("Button inset: \(Int(buttonInset)) pt", value: $buttonInset, in: 0...24)
-                Stepper("Grid inset: \(Int(gridInset)) pt", value: $gridInset, in: 0...24)
+                ValueStepper("Title size:", shown: "\(Int(titleSize))", after: "pt", value: $titleSize, in: 12...36, step: 1)
+                ValueStepper("Weeks shown:", shown: "\(Int(weeks))", value: $weeks, in: 1...8, step: 1)
+                ValueStepper("Button diameter:", shown: "\(Int(buttonSize))", after: "pt", value: $buttonSize, in: 24...60, step: 1)
+                ValueStepper("Button inset:", shown: "\(Int(buttonInset))", after: "pt", value: $buttonInset, in: 0...24, step: 1)
+                ValueStepper("Grid inset:", shown: "\(Int(gridInset))", after: "pt", value: $gridInset, in: 0...24, step: 1)
             } header: {
                 RoundedHeader("Widgets")
             } footer: {
@@ -1013,7 +1199,7 @@ struct HabitSettingsView: View {
                     ForEach(PartialPattern.allCases) { Text($0.title).tag($0.rawValue) }
                 }
                 if pattern == PartialPattern.diagonal.rawValue {
-                    Stepper("Stripe width: \(Int(stripeWidth)) pt", value: $stripeWidth, in: 4...16)
+                    ValueStepper("Stripe width:", shown: "\(Int(stripeWidth))", after: "pt", value: $stripeWidth, in: 4...16, step: 1)
                     VStack(alignment: .leading) {
                         Text("Done stripes opacity: \(Int(doneStripeOpacity * 100))%")
                         Slider(value: $doneStripeOpacity, in: 0.05...1)
@@ -1057,6 +1243,37 @@ struct HabitSettingsView: View {
                 RoundedHeader("Overdone")
             } footer: {
                 Text("Off: the icon has the not-done (lighter) color. On: the habit color mixed with black. Each habit can set its own icon color.")
+            }
+
+            Section {
+                Picker("Style", selection: $twicePattern) {
+                    ForEach(TwicePattern.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                if twicePattern == TwicePattern.icon.rawValue {
+                    SymbolField(title: "Icon", symbol: $twiceSymbol,
+                                presets: ["2.circle.fill", "2.square.fill", "checkmark.circle.fill", "circle.circle.fill", "plus.circle.fill", "star.fill", "flame.fill", "repeat"])
+                    VStack(alignment: .leading) {
+                        Text("Icon size: \(Int(twiceIconScale * 100))% of the day")
+                        Slider(value: $twiceIconScale, in: 0.2...0.9)
+                    }
+                } else {
+                    VStack(alignment: .leading) {
+                        Text("Inner square size: \(Int((twiceInnerSize * 100).rounded()))% of the day")
+                        Slider(value: $twiceInnerSize, in: 0.2...0.85)
+                    }
+                }
+                Toggle("Darker than the day", isOn: $twiceDarker)
+                if twiceDarker {
+                    VStack(alignment: .leading) {
+                        Text("Darker by: \(Int(twiceDarkness * 100))%")
+                        Slider(value: $twiceDarkness, in: 0.05...0.9)
+                    }
+                }
+                preview
+            } header: {
+                RoundedHeader("Twice a Day")
+            } footer: {
+                Text("For habits with “Twice a day” on: tapping a day done once marks it done twice. Off: the mark has the not-done (lighter) color. Each habit can set its own mark color.")
             }
 
             Section {
@@ -1111,6 +1328,7 @@ struct CalendarSettingsView: View {
     @AppStorage(CalendarSettings.Key.notificationTapOpensEvent, store: AppGroup.defaults) private var tapOpensEvent = false
     @AppStorage(CalendarSettings.Key.staleLabelMinutes, store: AppGroup.defaults) private var staleMinutes = 30
     @AppStorage(CalendarSettings.Key.cursorHex, store: AppGroup.defaults) private var cursorHex = CalendarSettings.defaultCursorHex
+    @AppStorage(CalendarSettings.Key.cursorOverEventOpacity, store: AppGroup.defaults) private var cursorOverEvent = 0.7
     @AppStorage(CalendarSettings.Key.defaultDayStart, store: AppGroup.defaults) private var dayStart = 6
     @AppStorage(CalendarSettings.Key.defaultDayEnd, store: AppGroup.defaults) private var dayEnd = 24
 
@@ -1134,8 +1352,13 @@ struct CalendarSettingsView: View {
             Section {
                 Picker("Default Day Start", selection: $dayStart) { ForEach(0..<24, id: \.self) { Text("\($0):00").tag($0) } }
                 Picker("Default Day End", selection: $dayEnd) { ForEach(0...24, id: \.self) { Text("\($0):00").tag($0) } }
-                Stepper("Show “synced N min ago” after \(staleMinutes) min", value: $staleMinutes, in: 5...240, step: 5)
-                HexField(title: "Cursor Color", hex: $cursorHex)
+                ValueStepper("Show “synced N min ago” after", shown: "\(staleMinutes)", after: "min", value: $staleMinutes, in: 5...240, step: 5)
+                HexField(title: "Cursor Color", hex: Binding(get: { cursorHex == "#E9534CFF" ? CalendarSettings.defaultCursorHex : cursorHex },
+                                                             set: { cursorHex = String($0.prefix(7)) }), alpha: false)
+                VStack(alignment: .leading) {
+                    Text("Cursor over events: \(Int((cursorOverEvent * 100).rounded()))%")
+                    Slider(value: $cursorOverEvent, in: 0.1...1)
+                }
             } header: {
                 RoundedHeader("Widget")
             } footer: {

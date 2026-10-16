@@ -156,8 +156,8 @@ struct HabitHeader: View {
             // Линия центровки названия на 1 pt выше середины кнопки.
             .offset(y: -1)
             .widgetAccentable()
-            // Сегодня уже отмечено — кнопка снимает отметку.
-            let done = habit.state(HabitDay.today()) != .none
+            // Сегодня сделано полностью (у «Twice a day» — дважды) — кнопка снимает отметку.
+            let done = habit.isComplete(HabitDay.today())
             Button(intent: MarkHabitTodayIntent(habitID: habit.id)) {
                 Image(systemName: done ? "xmark.circle" : "checkmark.circle.fill")
                     .resizable()
@@ -253,7 +253,8 @@ struct HabitWidgetView: View {
                     ForEach(0..<7, id: \.self) { i in
                         if let day = week[i] {
                             HabitCell(state: habit.state(day), isToday: day == today, color: habit.color, size: cell,
-                                      style: style, partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex)
+                                      style: style, partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex,
+                                      twiceIconHex: habit.twiceIconHex)
                         } else {
                             Color.clear.frame(width: cell, height: cell)
                         }

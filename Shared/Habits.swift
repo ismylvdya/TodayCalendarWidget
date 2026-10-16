@@ -5,14 +5,17 @@ import SwiftUI
 
 /// Состояние дня в истории привычки.
 enum HabitDayState: String, CaseIterable, Identifiable {
-    case none, partial, done, over
+    case none, partial, done, over, twice
     var id: String { rawValue }
+    /// Сколько раз сделано: дважды — 2, любая другая отметка — 1.
+    var units: Int { self == .none ? 0 : self == .twice ? 2 : 1 }
     var title: String {
         switch self {
         case .none: "Not Done"
         case .partial: "Partially Done"
         case .done: "Done"
         case .over: "Overdone"
+        case .twice: "Twice a Day"
         }
     }
 }
@@ -31,6 +34,8 @@ struct Habit: Codable, Identifiable, Hashable {
     /// Из выполненных — недоделанные и перевыполненные.
     var partialDays: Set<String> = []
     var overDays: Set<String> = []
+    /// Из выполненных — сделанные дважды (только у привычек «Twice a day»).
+    var twiceDays: Set<String> = []
     /// Дни, снятые вручную: синхронизация с Reminders их больше не добавляет.
     var removedDays: Set<String> = []
     /// Цвета иконок недоделанного и перевыполненного дня; nil — по умолчанию
@@ -48,6 +53,10 @@ struct Habit: Codable, Identifiable, Hashable {
     var showsNote = true
     /// Вредная привычка: серии считаются по дням, когда её НЕ было.
     var harmful = false
+    /// Делается дважды в день: нажатие по сделанному один раз дню ставит «дважды».
+    var twiceADay = false
+    /// Свой цвет отметки «дважды»; nil — по умолчанию.
+    var twiceIconHex: String?
     /// В архиве: нет в списке и виджетах, история сохраняется.
     var archived = false
     var createdAt = Date()
@@ -84,12 +93,15 @@ struct Habit: Codable, Identifiable, Hashable {
 
     /// Сколько дней отмечено на неделе, в которую входит `day`.
     func doneInWeek(of day: Date) -> Int {
-        HabitGrid.weeks(count: 1, endingAt: day).first?.compactMap { $0 }.filter(isDone).count ?? 0
+        // У «Twice a day» цель — в разах: день «дважды» даёт 2.
+        HabitGrid.weeks(count: 1, endingAt: day).first?.compactMap { $0 }.reduce(0) { $0 + units($1) } ?? 0
     }
 
     func state(_ day: Date) -> HabitDayState {
         let key = HabitDay.key(day)
         guard completions.contains(key) else { return .none }
+        // Привычку переключили с «Twice a day» на обычную — такие дни просто сделанные.
+        if twiceADay && twiceDays.contains(key) { return .twice }
         if overDays.contains(key) { return .over }
         if partialDays.contains(key) { return .partial }
         return .done
@@ -104,6 +116,7 @@ struct Habit: Codable, Identifiable, Hashable {
         let key = HabitDay.key(day)
         partialDays.remove(key)
         overDays.remove(key)
+        twiceDays.remove(key)
         if state == .none {
             completions.remove(key)
             removedDays.insert(key)
@@ -113,7 +126,27 @@ struct Habit: Codable, Identifiable, Hashable {
         removedDays.remove(key)
         if state == .partial { partialDays.insert(key) }
         if state == .over { overDays.insert(key) }
+        if state == .twice { twiceDays.insert(key) }
     }
+
+    /// Состояние после нажатия по дню (в сетке, виджете, чекбоксе). У привычки «Twice a day»:
+    /// не сделано → сделано → дважды (в т.ч. из недоделано/перевыполнено) → не сделано.
+    func nextTap(_ state: HabitDayState) -> HabitDayState {
+        guard twiceADay else { return state == .none ? .done : .none }
+        switch state {
+        case .none: return .done
+        case .twice: return .none
+        default: return .twice
+        }
+    }
+
+    /// Сегодня сделано полностью (у «Twice a day» — дважды): кнопка виджета снимает отметку.
+    func isComplete(_ day: Date) -> Bool {
+        twiceADay ? state(day) == .twice : state(day) != .none
+    }
+
+    /// Сколько раз сделано за день (у «Twice a day» дважды — 2).
+    func units(_ day: Date) -> Int { twiceADay ? state(day).units : (isDone(day) ? 1 : 0) }
 
     // Старые файлы базы без новых полей тоже читаются.
     init(from decoder: Decoder) throws {
@@ -125,6 +158,7 @@ struct Habit: Codable, Identifiable, Hashable {
         completions = try c.decodeIfPresent(Set<String>.self, forKey: .completions) ?? []
         partialDays = try c.decodeIfPresent(Set<String>.self, forKey: .partialDays) ?? []
         overDays = try c.decodeIfPresent(Set<String>.self, forKey: .overDays) ?? []
+        twiceDays = try c.decodeIfPresent(Set<String>.self, forKey: .twiceDays) ?? []
         removedDays = try c.decodeIfPresent(Set<String>.self, forKey: .removedDays) ?? []
         partialIconHex = try c.decodeIfPresent(String.self, forKey: .partialIconHex)
         overIconHex = try c.decodeIfPresent(String.self, forKey: .overIconHex)
@@ -134,6 +168,8 @@ struct Habit: Codable, Identifiable, Hashable {
         habitNote = try c.decodeIfPresent(String.self, forKey: .habitNote) ?? ""
         showsNote = try c.decodeIfPresent(Bool.self, forKey: .showsNote) ?? true
         harmful = try c.decodeIfPresent(Bool.self, forKey: .harmful) ?? false
+        twiceADay = try c.decodeIfPresent(Bool.self, forKey: .twiceADay) ?? false
+        twiceIconHex = try c.decodeIfPresent(String.self, forKey: .twiceIconHex)
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }
@@ -246,13 +282,14 @@ struct SeededRandom {
 
 enum HabitCSV {
     /// «habit_id,habit_name,date,status,note» — по строке на каждый отмеченный день или день
-    /// с заметкой; status: done, partial, over или none (только заметка).
+    /// с заметкой; status: done, partial, over, twice или none (только заметка).
     static func make(_ habits: [Habit]) -> String {
         func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
         var rows = ["habit_id,habit_name,date,status,note"]
         for habit in habits {
             for day in habit.completions.union(habit.notes.keys).sorted() {
                 let status = !habit.completions.contains(day) ? "none"
+                    : habit.twiceDays.contains(day) ? "twice"
                     : habit.overDays.contains(day) ? "over" : habit.partialDays.contains(day) ? "partial" : "done"
                 rows.append("\(habit.id.uuidString),\(quoted(habit.title)),\(day),\(status),\(quoted(habit.notes[day] ?? ""))")
             }

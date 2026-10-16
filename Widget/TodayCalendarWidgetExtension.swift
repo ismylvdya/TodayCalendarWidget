@@ -346,7 +346,8 @@ struct ColumnView: View {
                 }
 
                 // События
-                ForEach(Layout.place(entry.visibleEvents, from: from, to: to)) { p in
+                let placed = Layout.place(entry.visibleEvents, from: from, to: to)
+                ForEach(placed) { p in
                     let laneWidth = eventsWidth / CGFloat(p.lanes)
                     // Перенесённое событие выходит за границу колонки до края цифр часа,
                     // чтобы затухание заканчивалось (начиналось) на уровне подписи.
@@ -363,6 +364,16 @@ struct ColumnView: View {
                 // Курсор текущего момента
                 if entry.date >= from && entry.date < to {
                     let yy = y(entry.date)
+                    // Части курсора над событиями — прозрачнее (в координатах курсора).
+                    let origin = cursorX - cursorDot / 2
+                    let covered: [ClosedRange<CGFloat>] = placed.compactMap { p in
+                        let y0 = y(p.start) - (p.continuesBefore ? overshoot : 0)
+                        let h = max(y(p.end) + (p.continuesAfter ? overshoot : -1) - y0, 13)
+                        guard yy >= y0, yy <= y0 + h else { return nil }
+                        let laneWidth = eventsWidth / CGFloat(p.lanes)
+                        let x = gutter + CGFloat(p.lane) * laneWidth - origin
+                        return x...(x + laneWidth - 2)
+                    }
                     // Кружок — посередине между краем соседней колонки и цифрами часов.
                     ZStack(alignment: .leading) {
                         // Линия начинается в центре кружка, чтобы между ними не было щели;
@@ -374,6 +385,18 @@ struct ColumnView: View {
                     }
                     // В монохроме яркость = светлота цвета, поэтому курсор чисто белый — ярче всего остального.
                     .foregroundStyle(mode == .fullColor ? CalendarSettings.cursorColor : .white)
+                    .mask {
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                            ForEach(covered.indices, id: \.self) { i in
+                                Rectangle().fill(.black.opacity(1 - CalendarSettings.cursorOverEventOpacity))
+                                    .frame(width: covered[i].upperBound - covered[i].lowerBound)
+                                    .offset(x: covered[i].lowerBound)
+                                    .blendMode(.destinationOut)
+                            }
+                        }
+                        .compositingGroup()
+                    }
                     // Правый конец доходит до середины промежутка до следующей колонки.
                     .frame(width: geo.size.width + Layout.columnSpacing / 2 - cursorX + cursorDot / 2)
                     .offset(x: cursorX - cursorDot / 2, y: yy - cursorDot / 2)

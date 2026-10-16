@@ -12,6 +12,7 @@ struct HabitCell: View {
     /// Цвета иконок у привычки (nil — по умолчанию).
     var partialIconHex: String?
     var overIconHex: String?
+    var twiceIconHex: String?
     /// Показать значок заметки (только в приложении).
     var hasNote = false
     /// Свой цвет значка заметки.
@@ -60,6 +61,9 @@ struct HabitCell: View {
             case .over:
                 shape.fill(color).widgetAccentable()
                 icon(style.overSymbol, scale: style.overIconScale, hex: overIconHex) { overLook($0) }
+            case .twice:
+                shape.fill(color).widgetAccentable()
+                twice
             }
         }
     }
@@ -84,6 +88,41 @@ struct HabitCell: View {
                 Color.clear
             }
             .clipShape(shape)
+        }
+    }
+
+    /// Отметка «дважды»: концентрический квадрат внутри (заливка или обводка) или иконка —
+    /// своим цветом, иначе темнее дня (или светлее, по настройке).
+    @ViewBuilder private var twice: some View {
+        let inner = size * style.twiceInnerSize
+        let innerShape = RoundedRectangle(cornerRadius: inner * 0.3, style: .continuous)
+        switch style.twicePattern {
+        case .innerSquare:
+            twiceColored(AnyView(innerShape)).frame(width: inner, height: inner)
+        case .innerOutline:
+            twiceColored(AnyView(innerShape.strokeBorder(lineWidth: max(1.5, size * 0.08)))).frame(width: inner, height: inner)
+        case .icon:
+            icon(style.twiceSymbol, scale: style.twiceIconScale, hex: twiceIconHex) { shaded($0, darker: style.twiceDarker, darkness: style.twiceDarkness) }
+        }
+    }
+
+    @ViewBuilder private func twiceColored(_ view: AnyView) -> some View {
+        if let hex = twiceIconHex, let custom = Color(hex: hex) {
+            view.foregroundStyle(custom)
+        } else {
+            shaded(view, darker: style.twiceDarker, darkness: style.twiceDarkness)
+        }
+    }
+
+    /// Темнее дня (цвет привычки, смешанный с чёрным) или цвета невыполненного дня.
+    @ViewBuilder private func shaded(_ view: AnyView, darker: Bool, darkness: Double) -> some View {
+        if darker {
+            ZStack {
+                view.foregroundStyle(color)
+                view.foregroundStyle(Color.black.opacity(darkness))
+            }
+        } else {
+            undoneLook(view)
         }
     }
 

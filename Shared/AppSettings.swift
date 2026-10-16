@@ -50,12 +50,15 @@ enum CalendarSettings {
         static let removeWhenDeleted = "removeNotificationWhenDeleted"
         static let staleLabelMinutes = "staleLabelMinutes"
         static let cursorHex = "cursorHex"
+        static let cursorOverEventOpacity = "cursorOverEventOpacity"
         static let notificationTapOpensEvent = "notificationTapOpensEvent"
         static let defaultDayStart = "defaultDayStart"
         static let defaultDayEnd = "defaultDayEnd"
     }
 
-    static let defaultCursorHex = "#E9534CFF"
+    static let defaultCursorHex = "#EA4A45"
+    /// Прежний цвет по умолчанию: если он сохранён, значит его не выбирали — берём новый.
+    private static let oldDefaultCursorHex = "#E9534CFF"
 
     private static var d: UserDefaults { AppGroup.defaults }
     private static func bool(_ key: String, _ fallback: Bool) -> Bool {
@@ -75,7 +78,16 @@ enum CalendarSettings {
     static var removeWhenDeleted: Bool { bool(Key.removeWhenDeleted, true) }
     /// С какой давности данных показывать подпись «N min ago».
     static var staleLabelMinutes: Int { max(1, int(Key.staleLabelMinutes, 30)) }
-    static var cursorColor: Color { Color(hex: d.string(forKey: Key.cursorHex) ?? defaultCursorHex) ?? .red }
+    /// Цвет курсора — без прозрачности (она задаётся отдельно, для части над событиями).
+    static var cursorColor: Color {
+        var hex = d.string(forKey: Key.cursorHex) ?? defaultCursorHex
+        if hex == oldDefaultCursorHex { hex = defaultCursorHex }
+        return Color(hex: String(hex.trimmingCharacters(in: .whitespaces).prefix(7))) ?? .red
+    }
+    /// Непрозрачность части курсора над событиями.
+    static var cursorOverEventOpacity: Double {
+        d.object(forKey: Key.cursorOverEventOpacity) == nil ? 0.7 : d.double(forKey: Key.cursorOverEventOpacity)
+    }
     /// Нажатие на уведомление открывает карточку события в приложении (иначе — Calendar).
     static var notificationTapOpensEvent: Bool { bool(Key.notificationTapOpensEvent, false) }
     /// Интервал дня для календарных виджетов, у которых в настройках стоит «Default».
@@ -104,6 +116,12 @@ enum HabitSettings {
         static let overIconDarker = "habitOverIconDarker"
         static let overIconDarkness = "habitOverIconDarkness"
         static let gridBottomMargin = "habitGridBottomMargin"
+        static let twicePattern = "habitTwicePattern"
+        static let twiceSymbol = "habitTwiceSymbol"
+        static let twiceIconScale = "habitTwiceIconScale"
+        static let twiceInnerSize = "habitTwiceInnerSize"
+        static let twiceDarker = "habitTwiceDarker"
+        static let twiceDarkness = "habitTwiceDarkness"
     }
 
 
@@ -141,7 +159,26 @@ enum HabitSettings {
                    partialIconScale: double(Key.partialIconScale, 0.65),
                    overIconScale: double(Key.overIconScale, 0.65),
                    overIconDarker: d.object(forKey: Key.overIconDarker) == nil ? true : d.bool(forKey: Key.overIconDarker),
-                   overIconDarkness: double(Key.overIconDarkness, 0.65))
+                   overIconDarkness: double(Key.overIconDarkness, 0.65),
+                   twicePattern: TwicePattern(rawValue: d.string(forKey: Key.twicePattern) ?? "") ?? .innerSquare,
+                   twiceSymbol: symbol(Key.twiceSymbol, "2.circle.fill"),
+                   twiceIconScale: double(Key.twiceIconScale, 0.65),
+                   twiceInnerSize: double(Key.twiceInnerSize, 0.55),
+                   twiceDarker: d.object(forKey: Key.twiceDarker) == nil ? true : d.bool(forKey: Key.twiceDarker),
+                   twiceDarkness: double(Key.twiceDarkness, 0.65))
+    }
+}
+
+/// Как показывать день, сделанный дважды (поверх обычной заливки сделанного дня).
+enum TwicePattern: String, CaseIterable, Identifiable {
+    case innerSquare, innerOutline, icon
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .innerSquare: "Inner square"
+        case .innerOutline: "Inner outline"
+        case .icon: "Icon"
+        }
     }
 }
 
@@ -175,6 +212,14 @@ struct HabitStyle {
     /// Иконка перевыполнения темнее клетки (смесь цвета привычки с чёрным), а не светлее.
     var overIconDarker = true
     var overIconDarkness = 0.65
+    var twicePattern = TwicePattern.innerSquare
+    var twiceSymbol = "2.circle.fill"
+    var twiceIconScale = 0.65
+    /// Сторона внутреннего квадрата — доля стороны дня.
+    var twiceInnerSize = 0.55
+    /// Отметка «дважды» темнее дня (смесь с чёрным), а не светлее.
+    var twiceDarker = true
+    var twiceDarkness = 0.65
 }
 
 

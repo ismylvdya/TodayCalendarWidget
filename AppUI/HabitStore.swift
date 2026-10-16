@@ -53,13 +53,14 @@ final class HabitStore: ObservableObject {
         persist()
     }
 
-    /// Поменять состояние дня. До Reminders доходит только отметка сегодняшнего дня
-    /// выполненным (в любом виде) — тогда напоминание тоже отмечается выполненным.
+    /// Поменять состояние дня. До Reminders доходит только отметка сегодняшнего дня: на каждый
+    /// новый раз (сделано — один, дважды — ещё один) выполненным отмечается одно напоминание.
     func set(_ id: UUID, day: Date, state: HabitDayState) {
         guard var habit = habit(id) else { return }
+        let added = state.units - habit.state(day).units
         habit.setState(state, day: day)
         update(habit)
-        if state != .none && day == HabitDay.today() { ReminderSync.completeToday(habit) }
+        if added > 0 && day == HabitDay.today() { ReminderSync.completeNext(habit, count: added) }
     }
 
     private func persist() {

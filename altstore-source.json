@@ -1,0 +1,39 @@
+{
+  "name": "Habits on Reminders",
+  "identifier": "com.chumbulev.TripleToday.source",
+  "subtitle": "Habit tracker on top of Reminders and calendar widgets",
+  "website": "https://github.com/ismylvdya/TodayCalendarWidget",
+  "iconURL": "https://raw.githubusercontent.com/ismylvdya/TodayCalendarWidget/main/Icons/icon-ios.png",
+  "apps": [
+    {
+      "name": "Habits on Reminders",
+      "bundleIdentifier": "com.chumbulev.TripleToday",
+      "developerName": "ismylvdya",
+      "subtitle": "Habits on Reminders & Calendar Enhancer",
+      "localizedDescription": "Habit tracker that takes completions from Reminders, with habit grid and goal widgets, plus calendar widgets and alert notifications for calendar events.",
+      "iconURL": "https://raw.githubusercontent.com/ismylvdya/TodayCalendarWidget/main/Icons/icon-ios.png",
+      "tintColor": "#3478F6",
+      "versions": [
+        {
+          "version": "1.0",
+          "buildVersion": "1",
+          "date": "2026-10-16",
+          "localizedDescription": "First release.",
+          "size": 1498146,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.0/HabitsOnReminders.ipa"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [
+          "com.apple.security.application-groups"
+        ],
+        "privacy": {
+          "NSCalendarsFullAccessUsageDescription": "The widget shows today's calendar events.",
+          "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
+        }
+      }
+    }
+  ],
+  "news": []
+}
