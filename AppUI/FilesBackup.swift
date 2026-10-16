@@ -14,7 +14,7 @@ enum FilesBackup {
     /// Все ключи настроек приложения.
     private static let settingKeys: [String] = [
         CalendarSettings.Key.alertsEnabled, CalendarSettings.Key.keepAfterTap, CalendarSettings.Key.keepAfterSwipe, CalendarSettings.Key.notifyMovedIntoPast, CalendarSettings.Key.removeWhenMovedLater,
-        CalendarSettings.Key.removeWhenDeleted, CalendarSettings.Key.staleLabelMinutes, CalendarSettings.Key.cursorHex, CalendarSettings.Key.cursorOverEventOpacity, CalendarSettings.Key.bellOpacityLight, CalendarSettings.Key.bellOpacityDark,
+        CalendarSettings.Key.removeWhenDeleted, CalendarSettings.Key.staleLabelMinutes, CalendarSettings.Key.cursorHex, CalendarSettings.Key.cursorOverEventOpacity, CalendarSettings.Key.bellOpacityLight, CalendarSettings.Key.bellOpacityDark, CalendarSettings.Key.bellHexLight, CalendarSettings.Key.bellHexDark,
         CalendarSettings.Key.defaultDayStart, CalendarSettings.Key.defaultDayEnd,
         HabitSettings.Key.dayCutoffHour, HabitSettings.Key.widgetWeeks, HabitSettings.Key.buttonSize, HabitSettings.Key.buttonInset,
         HabitSettings.Key.gridInset, HabitSettings.Key.titleSize, HabitSettings.Key.undoneOpacity, HabitSettings.Key.partialPattern,

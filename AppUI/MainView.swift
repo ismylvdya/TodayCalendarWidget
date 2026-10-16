@@ -168,6 +168,8 @@ struct MainView: View {
             }
             // Потянуть вниз — на любой странице одинаково: база, Reminders, виджеты, уведомления.
             .refreshable { await store.forceRefresh() }
+            // Заголовок выше на половину высоты его шрифта (34 pt).
+            .contentMargins(.top, -17, for: .scrollContent)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             // Размытие над заголовком при прокрутке, как на вложенных экранах: там оно есть из-за
@@ -1589,7 +1591,7 @@ struct HabitSettingsView: View {
                 }
                 if backupFolder != nil {
                     Button(role: .destructive) { FilesBackup.setFolder(nil); backupFolder = nil; Toast.show("Backups stay on iPhone only") } label: {
-                        Label("Stop Backing Up to This Folder", systemImage: "folder.badge.minus")
+                        Label("Stop Backing Up to This Folder", systemImage: "folder.badge.minus").foregroundStyle(.red)
                     }
                 }
                 Button { picking = .backup; pickerShown = true } label: { Label("Restore from Backup…", systemImage: "clock.arrow.circlepath") }
@@ -1676,6 +1678,8 @@ struct CalendarSettingsView: View {
     @AppStorage(CalendarSettings.Key.cursorOverEventOpacity, store: AppGroup.defaults) private var cursorOverEvent = 0.7
     @AppStorage(CalendarSettings.Key.bellOpacityLight, store: AppGroup.defaults) private var bellLight = 0.5
     @AppStorage(CalendarSettings.Key.bellOpacityDark, store: AppGroup.defaults) private var bellDark = 0.7
+    @AppStorage(CalendarSettings.Key.bellHexLight, store: AppGroup.defaults) private var bellHexLight = ""
+    @AppStorage(CalendarSettings.Key.bellHexDark, store: AppGroup.defaults) private var bellHexDark = ""
     @AppStorage(CalendarSettings.Key.defaultDayStart, store: AppGroup.defaults) private var dayStart = 6
     @AppStorage(CalendarSettings.Key.defaultDayEnd, store: AppGroup.defaults) private var dayEnd = 24
 
@@ -1713,10 +1717,13 @@ struct CalendarSettingsView: View {
                     Text("Cursor over events: \(Int((cursorOverEvent * 100).rounded()))%")
                     Slider(value: $cursorOverEvent, in: 0...1)
                 }
+                // Пусто — цвет календаря события.
+                HexField(title: "Alert bell color, light", hex: $bellHexLight, alpha: false)
                 VStack(alignment: .leading) {
                     Text("Alert bell opacity, light: \(Int((bellLight * 100).rounded()))%")
                     Slider(value: $bellLight, in: 0...1)
                 }
+                HexField(title: "Alert bell color, dark", hex: $bellHexDark, alpha: false)
                 VStack(alignment: .leading) {
                     Text("Alert bell opacity, dark: \(Int((bellDark * 100).rounded()))%")
                     Slider(value: $bellDark, in: 0...1)
@@ -1724,7 +1731,7 @@ struct CalendarSettingsView: View {
             } header: {
                 RoundedHeader("Widget")
             } footer: {
-                Text("Default Day Start and End apply to calendar widgets whose Day start/end is set to “Default”.")
+                Text("Default Day Start and End apply to calendar widgets whose Day start/end is set to “Default”. An empty bell color means the event's calendar color.")
             }
         }
         .navigationBarTitleDisplayMode(.inline)

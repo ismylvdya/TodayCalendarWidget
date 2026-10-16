@@ -85,8 +85,8 @@ struct PlacedEvent: Identifiable {
     let lane: Int
     let lanes: Int
     /// Событие начинается раньше колонки / продолжается после неё.
-    var continuesBefore: Bool { event.start < start }
-    var continuesAfter: Bool { event.end > end }
+    let continuesBefore: Bool
+    let continuesAfter: Bool
     var id: String { event.id }
 }
 
@@ -103,7 +103,16 @@ enum Layout {
     static func place(_ events: [DayEvent], from: Date, to: Date) -> [PlacedEvent] {
         let clipped = events
             .filter { !$0.isAllDay && $0.end > from && $0.start < to }
-            .map { (ev: $0, s: max($0.start, from), e: min(max($0.end, $0.start.addingTimeInterval(15 * 60)), to)) }
+            .map { ev -> (ev: DayEvent, s: Date, e: Date) in
+                // Короче 30 минут — показываем получасовым слотом, в который попадает начало
+                // (17:45–18:00 → 17:30–18:00); не короче — как есть.
+                guard ev.end.timeIntervalSince(ev.start) < 30 * 60 else { return (ev, max(ev.start, from), min(ev.end, to)) }
+                let cal = Calendar.current
+                var parts = cal.dateComponents([.year, .month, .day, .hour, .minute], from: ev.start)
+                parts.minute = (parts.minute ?? 0) / 30 * 30
+                let slot = cal.date(from: parts) ?? ev.start
+                return (ev, max(slot, from), min(slot.addingTimeInterval(30 * 60), to))
+            }
             .sorted { $0.s < $1.s }
 
         var result: [PlacedEvent] = []
@@ -112,7 +121,8 @@ enum Layout {
 
         func flush() {
             let lanes = (cluster.map(\.lane).max() ?? 0) + 1
-            result += cluster.map { PlacedEvent(event: $0.ev, start: $0.s, end: $0.e, lane: $0.lane, lanes: lanes) }
+            result += cluster.map { PlacedEvent(event: $0.ev, start: $0.s, end: $0.e, lane: $0.lane, lanes: lanes,
+                                                continuesBefore: $0.ev.start < from, continuesAfter: $0.ev.end > to) }
             cluster.removeAll()
         }
 
@@ -483,7 +493,8 @@ struct EventBlock: View {
                         // светлой и тёмной темы); при инверсии выбивается целиком.
                         .foregroundStyle(inverted ? AnyShapeStyle(HierarchicalShapeStyle.primary)
                                          : mode == .fullColor && isPhone
-                                            ? AnyShapeStyle(color.opacity(CalendarSettings.bellOpacity(dark: scheme == .dark)))
+                                            ? AnyShapeStyle((CalendarSettings.bellColor(dark: scheme == .dark) ?? color)
+                                                .opacity(CalendarSettings.bellOpacity(dark: scheme == .dark)))
                                          : AnyShapeStyle(.secondary))
                         .padding(.top, 2)
                 }

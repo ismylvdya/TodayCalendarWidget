@@ -55,6 +55,8 @@ enum CalendarSettings {
         static let cursorOverEventOpacity = "cursorOverEventOpacity"
         static let bellOpacityLight = "bellOpacityLight"
         static let bellOpacityDark = "bellOpacityDark"
+        static let bellHexLight = "bellHexLight"
+        static let bellHexDark = "bellHexDark"
         static let defaultDayStart = "defaultDayStart"
         static let defaultDayEnd = "defaultDayEnd"
     }
@@ -96,6 +98,11 @@ enum CalendarSettings {
     static func bellOpacity(dark: Bool) -> Double {
         let key = dark ? Key.bellOpacityDark : Key.bellOpacityLight
         return d.object(forKey: key) == nil ? (dark ? 0.7 : 0.5) : d.double(forKey: key)
+    }
+    /// Свой цвет колокольчика (светлая / тёмная тема); nil — цвет календаря.
+    static func bellColor(dark: Bool) -> Color? {
+        let hex = d.string(forKey: dark ? Key.bellHexDark : Key.bellHexLight) ?? ""
+        return hex.isEmpty ? nil : Color(hex: String(hex.prefix(7)))
     }
     static var cursorOverEventOpacity: Double {
         d.object(forKey: Key.cursorOverEventOpacity) == nil ? 0.7 : d.double(forKey: Key.cursorOverEventOpacity)
