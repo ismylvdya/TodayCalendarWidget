@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.2",
+          "buildVersion": "7",
+          "date": "2026-10-16",
+          "localizedDescription": "Why Not Done: hold a not-done day to pick a reason (or add a new one). Days without a reason get a question mark, and when one reason repeats several days in a row a notification suggests how to change the habit (prompt, ability or motivation, after Tiny Habits). Reasons are managed in Habits on Reminders Settings → Why Not Done.",
+          "size": 1324296,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.2/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.1.4",
           "buildVersion": "6",
           "date": "2026-10-16",
@@ -78,11 +87,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.1.4",
+      "version": "1.2",
       "versionDate": "2026-10-16",
-      "versionDescription": "Pull to refresh shows what was updated; the main title moves into the bar when scrolled instead of disappearing; leaving the last habit from Archive or Trash returns to the main screen.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.1.4/HabitsOnReminders.ipa",
-      "size": 1244094
+      "versionDescription": "Why Not Done: hold a not-done day to pick a reason (or add a new one). Days without a reason get a question mark, and when one reason repeats several days in a row a notification suggests how to change the habit (prompt, ability or motivation, after Tiny Habits). Reasons are managed in Habits on Reminders Settings → Why Not Done.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.2/HabitsOnReminders.ipa",
+      "size": 1324296
     }
   ],
   "news": [],

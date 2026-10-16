@@ -10,8 +10,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     DEVELOPMENT_TEAM: ""
     ENABLE_HARDENED_RUNTIME: NO
-    MARKETING_VERSION: "1.1.4"
-    CURRENT_PROJECT_VERSION: "6"
+    MARKETING_VERSION: "1.2"
+    CURRENT_PROJECT_VERSION: "7"
 targets:
   TodayCalendarWidget:
     type: application
