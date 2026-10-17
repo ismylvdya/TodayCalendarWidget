@@ -80,7 +80,10 @@ struct ToastView: View {
         HStack(spacing: 8) {
             Image(systemName: toast.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(toast.isError ? .orange : .green)
-            Text(toast.text).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
+            // Свёрнута — переносы строк становятся пробелами, не больше двух строк;
+            // раскрыта — весь текст с переносами.
+            Text(expanded ? toast.text : toast.text.replacingOccurrences(of: "\n", with: " "))
+                .font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
                 .lineLimit(expanded ? nil : 2)
         }
         // Ровно заданной ширины, а не по тексту (иначе ширина менялась скачками — по переносам).
@@ -115,9 +118,9 @@ struct RootView: View {
                 if let toast = router.toast {
                     ToastView(toast: toast, expanded: toastExpanded)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                        // Нажатие раскрывает весь текст (и плашка больше не исчезает сама);
-                        // убирается смахиванием вверх или сама через 10 секунд, если не раскрыта.
-                        .onTapGesture { withAnimation(.spring(duration: 0.3)) { toastExpanded = true } }
+                        // Нажатие раскрывает весь текст (плашка тогда больше не исчезает сама),
+                        // повторное — сворачивает; убирается смахиванием вверх.
+                        .onTapGesture { withAnimation(.spring(duration: 0.3)) { toastExpanded.toggle() } }
                         .gesture(DragGesture(minimumDistance: 10).onEnded { value in
                             if value.translation.height < -10 { withAnimation { router.toast = nil } }
                         })

@@ -27,12 +27,13 @@ final class HabitStore: ObservableObject {
         await refresh()
         var parts = [Self.habitChanges(from: before, to: db.habits)]
         #if os(iOS)
-        if !ReminderSync.hasAccess && db.habits.contains(where: { !$0.links.isEmpty }) { parts.append("no access to Reminders") }
-        if let alerts = await AlertScheduler.sync() { parts.append(alerts == 0 ? "no upcoming event alerts" : alerts == 1 ? "1 event alert scheduled" : "\(alerts) event alerts scheduled") }
+        if !ReminderSync.hasAccess && db.habits.contains(where: { !$0.links.isEmpty }) { parts.append("No access to Reminders.") }
+        if let alerts = await AlertScheduler.sync() { parts.append(alerts == 0 ? "No upcoming event alerts." : alerts == 1 ? "1 event alert scheduled." : "\(alerts) event alerts scheduled.") }
         #endif
         WidgetCenter.shared.reloadAllTimelines()
-        parts.append("widgets reloaded")
-        Toast.show(parts.joined(separator: " · "))
+        parts.append("Widgets reloaded.")
+        // По строке на пункт: раскрытая плашка показывает их столбиком, свёрнутая — в строку.
+        Toast.show(parts.joined(separator: "\n"))
     }
 
     /// «+2 days, −1 day in 2 habits» — отметки, пришедшие из Reminders и виджетов.
@@ -49,13 +50,13 @@ final class HabitStore: ObservableObject {
             added += a; removed += r; changed += c
             if a + r + c > 0 { habits += 1 }
         }
-        guard habits > 0 else { return "Habits up to date" }
+        guard habits > 0 else { return "Habits up to date." }
         func days(_ n: Int) -> String { n == 1 ? "1 day" : "\(n) days" }
         var items: [String] = []
         if added > 0 { items.append("+" + days(added)) }
         if removed > 0 { items.append("−" + days(removed)) }
         if changed > 0 { items.append(days(changed) + " changed") }
-        return "Habits: " + items.joined(separator: ", ") + (habits == 1 ? " in 1 habit" : " in \(habits) habits")
+        return "Habits: " + items.joined(separator: ", ") + (habits == 1 ? " in 1 habit." : " in \(habits) habits.")
     }
 
     func add(_ habit: Habit) {
@@ -158,7 +159,7 @@ final class HabitStore: ObservableObject {
             var index = item.id.flatMap { id in db.habits.firstIndex { $0.id == id } }
                 ?? db.habits.firstIndex { !$0.isTrashed && $0.title.caseInsensitiveCompare(item.name) == .orderedSame }
             if index == nil {
-                var habit = Habit(name: item.name)
+                var habit = Habit(name: item.name.isEmpty ? "Imported Habit" : item.name)
                 if let id = item.id { habit.id = id }
                 habit.createdAt = item.states.keys.compactMap(HabitDay.date).min() ?? Date()
                 db.habits.append(habit)
@@ -173,6 +174,15 @@ final class HabitStore: ObservableObject {
                 days += 1
             }
             for (key, note) in item.notes where db.habits[i].notes[key] == nil { db.habits[i].notes[key] = note }
+            // Причины пропуска — по названию из общего списка (новые добавляются в него).
+            for (key, title) in item.reasons where db.habits[i].skipReasons[key] == nil {
+                let id = db.reasons.first { $0.title.caseInsensitiveCompare(title) == .orderedSame }?.id ?? {
+                    let reason = SkipReason(title: title)
+                    db.reasons.append(reason)
+                    return reason.id
+                }()
+                db.habits[i].skipReasons[key] = id
+            }
         }
         persist()
         return (created, days)
@@ -220,6 +230,9 @@ final class HabitStore: ObservableObject {
         m.noteIconHex = pick(\.noteIconHex)
         m.missedHex = pick(\.missedHex)
         m.highlightMissed = pick(\.highlightMissed)
+        m.goalCountsTwice = pick(\.goalCountsTwice)
+        // Правило одно: при подсветке пропусков цели на неделю нет.
+        if m.highlightMissed { m.weeklyGoal = 0 }
         m.allowedSkips = pick(\.allowedSkips)
         m.createdAt = min(a.createdAt, b.createdAt)
         m.links = a.links + b.links.filter { link in !a.links.contains { $0.reminderID == link.reminderID } }

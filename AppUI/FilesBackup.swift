@@ -6,7 +6,7 @@ import UserNotifications
 /// - `habits.json` — текущая база, `habits-previous.json` — до последнего изменения;
 /// - `habits-daily.json` — состояние до первого изменения за день (независимая вчерашняя копия);
 /// - `habits-before-…json` — снимок перед подозрительно большим изменением (сам не удаляется);
-/// - `habits.csv` и `settings.json`.
+/// - `habits.csv` и `habit_days.csv` (привычки и дни) и `settings.json`.
 enum FilesBackup {
     private static var localFolder: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
     private static let bookmarkKey = "backupFolderBookmark"
@@ -108,7 +108,8 @@ enum FilesBackup {
                 try old.write(to: folder.appendingPathComponent("habits-previous.json"), options: .atomic)
             }
             if old != data { try data.write(to: current, options: .atomic) }
-            try HabitCSV.make(db.habits).write(to: folder.appendingPathComponent("habits.csv"), atomically: true, encoding: .utf8)
+            try HabitCSV.makeHabits(db.habits).write(to: folder.appendingPathComponent(HabitCSV.habitsFile), atomically: true, encoding: .utf8)
+            try HabitCSV.makeDays(db.habits, reasons: db.reasons).write(to: folder.appendingPathComponent(HabitCSV.daysFile), atomically: true, encoding: .utf8)
             var settings: [String: Any] = [:]
             for key in settingKeys { if let value = AppGroup.defaults.object(forKey: key) { settings[key] = value } }
             let json = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])

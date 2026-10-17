@@ -112,12 +112,69 @@ extension Habit {
     /// Первый отмеченный день («yyyy-MM-dd» сортируются как даты).
     var firstMarkedDay: Date? { completions.min().flatMap(HabitDay.date) }
 
-    /// Несделанный прошедший день (не сегодня) без причины после первой отметки — на нём
-    /// знак вопроса. Только если у привычки включено «Why Not Done» и она не вредная.
-    func needsReason(_ day: Date, today: Date = HabitDay.today(), firstMarked: Date? = nil) -> Bool {
-        guard asksWhyNotDone, !harmful, day < today, state(day) == .none, reason(day) == nil,
-              let first = firstMarked ?? firstMarkedDay else { return false }
-        return day > first
+    /// Дни со знаком вопроса («yyyy-MM-dd»): несделанные прошедшие дни (не сегодня) без причины
+    /// после первой отметки, которые нарушают правило привычки:
+    /// - Missed Days: в серии несделанных дней — каждый день сверх разрешённых пропусков;
+    /// - Weekly Goal: несделанный день, после которого цель недели уже не достичь, даже если
+    ///   делать каждый оставшийся день, — по одному на неделю;
+    /// - без правила проблемой считается каждый несделанный день.
+    /// Только если у привычки включено «Why Not Done» и она не вредная.
+    func questionDays(today: Date = HabitDay.today()) -> Set<String> {
+        guard asksWhyNotDone, !harmful, let first = firstMarkedDay else { return [] }
+        let cal = Calendar.current
+        var days: [Date] = []
+        var d = cal.date(byAdding: .day, value: 1, to: first)!
+        while d < today { days.append(d); d = cal.date(byAdding: .day, value: 1, to: d)! }
+        var result: Set<String> = []
+        switch rule {
+        case .none:
+            result = Set(days.filter { state($0) == .none }.map(HabitDay.key))
+        case .missed:
+            var run = 0
+            for day in days {
+                if state(day) == .none {
+                    run += 1
+                    if run > allowedSkips { result.insert(HabitDay.key(day)) }
+                } else {
+                    run = 0
+                }
+            }
+        case .goal:
+            let perDay = twiceADay && goalCountsTwice ? 2 : 1
+            var flaggedWeeks: Set<Date> = []
+            for day in days where state(day) == .none {
+                let start = HabitGrid.weekStart(day)
+                guard !flaggedWeeks.contains(start) else { continue }
+                // Сделано в неделе по этот день включительно + все оставшиеся дни недели.
+                var done = 0
+                var x = start
+                while x <= day { done += goalUnits(x); x = cal.date(byAdding: .day, value: 1, to: x)! }
+                let left = cal.dateComponents([.day], from: day, to: cal.date(byAdding: .day, value: 7, to: start)!).day! - 1
+                if done + left * perDay < weeklyGoal {
+                    flaggedWeeks.insert(start)
+                    result.insert(HabitDay.key(day))
+                }
+            }
+        }
+        return result.filter { key in HabitDay.date(key).map { reason($0) == nil } ?? false }
+    }
+
+    /// Когда ставится знак вопроса — для подсказки в настройках привычки.
+    var questionRuleInfo: String {
+        let base = "A question mark asks why a past day wasn't done — pick a reason in the day's menu and it goes away. Days before the first marked day and today never get one; bad habits never do.\n\n"
+        switch rule {
+        case .none:
+            return base + "No skip rule is set, so every not-done day gets a question mark."
+        case .missed:
+            return base + "Missed Days: you may skip \(allowedSkips) \(allowedSkips == 1 ? "day" : "days") in a row. Every not-done day beyond that in a row gets a question mark."
+        case .goal:
+            return base + "Weekly Goal: the not-done day after which this week's goal (\(weeklyGoal)) can no longer be reached — even doing every remaining day — gets a question mark. One per week."
+        }
+    }
+
+    /// Нужен ли знак вопроса на дне (для отдельных дней; для сетки — `questionDays` разом).
+    func needsReason(_ day: Date, today: Date = HabitDay.today()) -> Bool {
+        questionDays(today: today).contains(HabitDay.key(day))
     }
 
     /// Сколько несделанных дней подряд, заканчивая `day`, — с одной и той же причиной.

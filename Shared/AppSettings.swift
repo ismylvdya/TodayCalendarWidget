@@ -152,6 +152,8 @@ enum HabitSettings {
         static let reasonAlertDays = "habitReasonAlertDays"
         static let squircleButton = "habitSquircleButton"
         static let mainSquircle = "habitMainSquircle"
+        static let mainSquircleSize = "habitMainSquircleSize"
+        static let mainCheckboxSize = "habitMainCheckboxSize"
         static let undonePattern = "habitUndonePattern"
         static let undoneSymbol = "habitUndoneSymbol"
         static let undoneIconScale = "habitUndoneIconScale"
@@ -178,6 +180,9 @@ enum HabitSettings {
     static var buttonSize: Double { double(Key.buttonSize, 40) }
     /// Кнопка виджета — сегодняшний день как клетка сетки (иначе — круглый чекбокс).
     /// На главной у привычек — сегодняшний день как клетка сетки (иначе — круглый чекбокс).
+    /// Размер сегодняшнего дня и чекбокса на главной, pt (у каждого — свой).
+    static var mainSquircleSize: Double { double(Key.mainSquircleSize, 32) }
+    static var mainCheckboxSize: Double { double(Key.mainCheckboxSize, 30) }
     static var mainSquircle: Bool { d.object(forKey: Key.mainSquircle) == nil ? true : d.bool(forKey: Key.mainSquircle) }
     static var squircleButton: Bool { d.object(forKey: Key.squircleButton) == nil ? true : d.bool(forKey: Key.squircleButton) }
     /// Отступ кнопки от верхнего и правого края виджета.

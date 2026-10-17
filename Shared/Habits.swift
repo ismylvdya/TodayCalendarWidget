@@ -46,6 +46,8 @@ struct Habit: Codable, Identifiable, Hashable {
     var noteIconHex: String?
     /// Цель: сколько раз в неделю (0 — без цели).
     var weeklyGoal = 0
+    /// У «Twice a day»: день «дважды» идёт в цель как 2 раза (иначе как 1).
+    var goalCountsTwice = false
     /// Заметки к дням.
     var notes: [String: String] = [:]
     /// Причины несделанных дней: день → ID причины из общего списка (`HabitDB.reasons`).
@@ -106,8 +108,30 @@ struct Habit: Codable, Identifiable, Hashable {
 
     /// Сколько дней отмечено на неделе, в которую входит `day`.
     func doneInWeek(of day: Date) -> Int {
-        // У «Twice a day» цель — в разах: день «дважды» даёт 2.
-        HabitGrid.weeks(count: 1, endingAt: day).first?.compactMap { $0 }.reduce(0) { $0 + units($1) } ?? 0
+        HabitGrid.weeks(count: 1, endingAt: day).first?.compactMap { $0 }.reduce(0) { $0 + goalUnits($1) } ?? 0
+    }
+
+    /// Сколько день даёт в цель на неделю: «дважды» — 2, только если так настроено.
+    func goalUnits(_ day: Date) -> Int { twiceADay && goalCountsTwice ? state(day).units : (isDone(day) ? 1 : 0) }
+
+    /// Правило для пропусков: либо подсветка пропусков сверх допуска, либо цель на неделю, либо ничего.
+    enum Rule: String, CaseIterable, Identifiable {
+        case none, missed, goal
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .none: "None"
+            case .missed: "Missed Days"
+            case .goal: "Weekly Goal"
+            }
+        }
+    }
+
+    var rule: Rule { highlightMissed ? .missed : weeklyGoal > 0 ? .goal : .none }
+
+    mutating func setRule(_ rule: Rule) {
+        highlightMissed = rule == .missed
+        weeklyGoal = rule == .goal ? max(weeklyGoal, 3) : 0
     }
 
     func state(_ day: Date) -> HabitDayState {
@@ -208,11 +232,14 @@ struct Habit: Codable, Identifiable, Hashable {
         twiceADay = try c.decodeIfPresent(Bool.self, forKey: .twiceADay) ?? false
         twiceIconHex = try c.decodeIfPresent(String.self, forKey: .twiceIconHex)
         highlightMissed = try c.decodeIfPresent(Bool.self, forKey: .highlightMissed) ?? false
+        goalCountsTwice = try c.decodeIfPresent(Bool.self, forKey: .goalCountsTwice) ?? false
         allowedSkips = try c.decodeIfPresent(Int.self, forKey: .allowedSkips) ?? 1
         missedHex = try c.decodeIfPresent(String.self, forKey: .missedHex)
         archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
         trashedAt = try c.decodeIfPresent(Date.self, forKey: .trashedAt)
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        // Подсветка пропусков и цель на неделю теперь не включаются вместе — остаётся подсветка.
+        if highlightMissed { weeklyGoal = 0 }
     }
 }
 
@@ -324,27 +351,44 @@ struct SeededRandom {
 // MARK: - CSV
 
 enum HabitCSV {
-    /// «habit_id,habit_name,date,status,note» — по строке на каждый отмеченный день или день
-    /// с заметкой; status: done, partial, over, twice или none (только заметка).
-    static func make(_ habits: [Habit]) -> String {
-        func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
-        var rows = ["habit_id,habit_name,date,status,note"]
+    static let habitsFile = "habits.csv"
+    static let daysFile = "habit_days.csv"
+
+    private static func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
+
+    /// Таблица привычек (измерения): «habit_id,habit_name».
+    static func makeHabits(_ habits: [Habit]) -> String {
+        (["habit_id,habit_name"] + habits.map { "\($0.id.uuidString),\(quoted($0.title))" }).joined(separator: "\n") + "\n"
+    }
+
+    /// Таблица дней (факты): «habit_id,date,status,note,skip_reason» — по строке на каждый
+    /// отмеченный день, день с заметкой или с причиной пропуска; status: done, partial, over,
+    /// twice или none (не отмечен).
+    static func makeDays(_ habits: [Habit], reasons: [SkipReason]) -> String {
+        let reasonTitles = Dictionary(reasons.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
+        var rows = ["habit_id,date,status,note,skip_reason"]
         for habit in habits {
-            for day in habit.completions.union(habit.notes.keys).sorted() {
+            for day in habit.completions.union(habit.notes.keys).union(habit.skipReasons.keys).sorted() {
                 let status = !habit.completions.contains(day) ? "none"
                     : habit.twiceDays.contains(day) ? "twice"
                     : habit.overDays.contains(day) ? "over" : habit.partialDays.contains(day) ? "partial" : "done"
-                rows.append("\(habit.id.uuidString),\(quoted(habit.title)),\(day),\(status),\(quoted(habit.notes[day] ?? ""))")
+                let reason = habit.skipReasons[day].flatMap { reasonTitles[$0] } ?? ""
+                rows.append("\(habit.id.uuidString),\(day),\(status),\(quoted(habit.notes[day] ?? "")),\(quoted(reason))")
             }
         }
         return rows.joined(separator: "\n") + "\n"
     }
 
-    static func file(_ habits: [Habit], name: String) -> URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        try? make(habits).write(to: url, atomically: true, encoding: .utf8)
-        return url
+    /// Обе таблицы файлами во временной папке (для «Поделиться»); `prefix` — в начале имён.
+    static func files(_ habits: [Habit], reasons: [SkipReason], prefix: String = "") -> [URL] {
+        let dir = FileManager.default.temporaryDirectory
+        let habitsURL = dir.appendingPathComponent(prefix + habitsFile), daysURL = dir.appendingPathComponent(prefix + daysFile)
+        try? makeHabits(habits).write(to: habitsURL, atomically: true, encoding: .utf8)
+        try? makeDays(habits, reasons: reasons).write(to: daysURL, atomically: true, encoding: .utf8)
+        return [habitsURL, daysURL]
     }
+
+    static let formatInfo = "Two CSV tables:\n• habits.csv — one row per habit: habit_id (the habit's permanent ID, kept after relinking reminders), habit_name;\n• habit_days.csv — one row per marked day, day with a note or with a skip reason: habit_id, date (yyyy-MM-dd), status (done, partial, over, twice, or none when not marked), note, skip_reason.\n\nJoin them on habit_id."
 
     // MARK: Импорт
 
@@ -354,6 +398,37 @@ enum HabitCSV {
         var name: String
         var states: [String: HabitDayState] = [:]
         var notes: [String: String] = [:]
+        /// Причины пропуска по названию.
+        var reasons: [String: String] = [:]
+    }
+
+    /// Несколько файлов сразу: таблица привычек (habit_id, habit_name без даты) даёт названия
+    /// для таблицы дней; остальные файлы — как в `parse`.
+    static func parse(files: [(text: String, fileName: String)]) -> [Imported] {
+        var names: [UUID: String] = [:]
+        var facts: [(String, String)] = []
+        for file in files {
+            let rows = csvRows(file.text)
+            let header = rows.first?.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? []
+            if let idCol = header.firstIndex(of: "habit_id"), let nameCol = header.firstIndex(of: "habit_name"),
+               !header.contains("date") {
+                for row in rows.dropFirst() where idCol < row.count && nameCol < row.count {
+                    if let id = UUID(uuidString: row[idCol].trimmingCharacters(in: .whitespaces)) {
+                        names[id] = row[nameCol].trimmingCharacters(in: .whitespaces)
+                    }
+                }
+            } else {
+                facts.append((file.text, file.fileName))
+            }
+        }
+        var result: [Imported] = []
+        for (text, fileName) in facts {
+            for var item in parse(text, fileName: fileName) {
+                if item.name.isEmpty, let id = item.id { item.name = names[id] ?? "" }
+                result.append(item)
+            }
+        }
+        return result
     }
 
     /// Понимает форматы:
@@ -374,18 +449,26 @@ enum HabitCSV {
         let idCol = column(["habit_id"])
         let statusCol = column(["status", "value", "state", "completed", "result", "count", "quantity"])
         let noteCol = column(["note", "notes", "comment"])
+        let reasonCol = column(["skip_reason"])
 
         var result: [String: Imported] = [:]
         var order: [String] = []
-        func add(_ name: String, id: UUID?, date: String, status: String, note: String) {
+        func add(_ name: String, id: UUID?, date: String, status: String, note: String, reason: String = "") {
             guard let key = dayKey(date) else { return }
             let tag = id?.uuidString ?? name.lowercased()
             if result[tag] == nil { result[tag] = Imported(id: id, name: name); order.append(tag) }
             if let state = state(status, defaultDone: statusCol == nil) { result[tag]!.states[key] = state }
             if !note.isEmpty { result[tag]!.notes[key] = note }
+            if !reason.isEmpty { result[tag]!.reasons[key] = reason }
         }
 
-        if let nameCol {
+        if nameCol == nil, idCol != nil {
+            // Своя таблица дней: привычка — только по ID (название — из таблицы привычек).
+            for row in body {
+                add("", id: UUID(uuidString: cell(row, idCol)), date: cell(row, dateCol), status: cell(row, statusCol),
+                    note: cell(row, noteCol), reason: cell(row, reasonCol))
+            }
+        } else if let nameCol {
             // Длинный формат: строка — день одной привычки.
             for row in body {
                 add(cell(row, nameCol), id: UUID(uuidString: cell(row, idCol)), date: cell(row, dateCol),

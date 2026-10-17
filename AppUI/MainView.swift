@@ -374,6 +374,9 @@ extension View {
 /// Иконка — по центру столбца шириной с сегодняшний день у привычек, текст — там же, где
 /// начинаются названия привычек.
 struct PlainLabel: View {
+    @AppStorage(HabitSettings.Key.mainSquircle, store: AppGroup.defaults) private var squircle = true
+    @AppStorage(HabitSettings.Key.mainSquircleSize, store: AppGroup.defaults) private var squircleSize = 32.0
+    @AppStorage(HabitSettings.Key.mainCheckboxSize, store: AppGroup.defaults) private var checkboxSize = 30.0
     let title: String
     let systemImage: String
     /// Иконка цвета акцента (у кнопок), а не текста.
@@ -388,7 +391,7 @@ struct PlainLabel: View {
             Image(systemName: systemImage)
                 .imageScale(.large)
                 .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-                .frame(width: TodayCheckbox.size)
+                .frame(width: squircle ? squircleSize : checkboxSize)
             Text(title)
         }
     }
@@ -538,7 +541,10 @@ struct ListDot: View {
 /// Сегодняшний день слева от привычки — та же клетка, что в сетке на её странице: те же
 /// отметки, значки и меню. Нажатие — следующая отметка, долгое нажатие — меню дня.
 struct TodayCheckbox: View {
-    static let size: CGFloat = 32
+    /// Ширина столбца слева на главной — размер выбранного вида (день или чекбокс).
+    static var size: CGFloat {
+        CGFloat(HabitSettings.mainSquircle ? HabitSettings.mainSquircleSize : HabitSettings.mainCheckboxSize)
+    }
     let habit: Habit
     let tap: () -> Void
     let setState: (HabitDayState) -> Void
@@ -548,38 +554,29 @@ struct TodayCheckbox: View {
     let newReason: () -> Void
     @State private var longPresses = 0
     @AppStorage(HabitSettings.Key.mainSquircle, store: AppGroup.defaults) private var squircle = true
+    @AppStorage(HabitSettings.Key.mainSquircleSize, store: AppGroup.defaults) private var squircleSize = 32.0
+    @AppStorage(HabitSettings.Key.mainCheckboxSize, store: AppGroup.defaults) private var checkboxSize = 30.0
 
     var body: some View {
         if squircle { day } else { checkbox }
     }
 
-    /// Прежний круглый чекбокс (по выбору в настройках) — в столбце той же ширины, что и день.
+    /// Круглый чекбокс (по выбору в настройках) — тот же, что в виджетах.
     private var checkbox: some View {
         let today = HabitDay.today()
         let state = habit.state(today)
-        let twice = habit.twiceADay && state == .twice
         return Menu {
             DayMenuItems(habit: habit, day: today, style: HabitSettings.style, setState: setState, editNote: editNote,
                          reasons: reasons, setReason: setReason, newReason: newReason)
         } label: {
-            ZStack {
-                if twice {
-                    Circle().strokeBorder(habit.color, lineWidth: 2.25).frame(width: 30, height: 30)
-                    Image(systemName: "checkmark.circle.fill").font(.system(size: 20))
-                } else {
-                    Image(systemName: state == .none ? "circle" : "checkmark.circle.fill").font(.system(size: 24))
-                }
-            }
-            .frame(width: 30, height: 30)
-            .foregroundStyle(habit.color)
-            .contentShape(Circle())
+            RoundCheckbox(habit: habit, size: CGFloat(checkboxSize), today: today)
+                .contentShape(Circle())
         } primaryAction: {
             tap()
         }
         .menuIndicator(.hidden)
         .buttonStyle(.borderless)
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.35).onEnded { _ in longPresses += 1 })
-        .frame(width: Self.size)
         .sensoryFeedback(.impact(weight: .light), trigger: state)
         .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
     }
@@ -587,7 +584,7 @@ struct TodayCheckbox: View {
     private var day: some View {
         let today = HabitDay.today()
         let state = habit.state(today)
-        let size = Self.size
+        let size = CGFloat(squircleSize)
         // Сегодня знака вопроса нет (день ещё идёт), значок может быть только у заметки.
         let shape = DayShape(cell: size, hasNote: habit.note(today) != nil, hasQuestion: false)
         let extra = shape.overhang
@@ -919,6 +916,8 @@ struct AppIconPicker: View {
 struct InfoButton: View {
     let text: String
     var tint: Color = Color(.tertiaryLabel)
+    /// Окно примерно квадратное (высота ≈ ширине), а не по высоте текста.
+    var tall = false
     @State private var shown = false
 
     var body: some View {
@@ -928,6 +927,7 @@ struct InfoButton: View {
             .popover(isPresented: $shown) {
                 // Цвет кнопки на текст не переходит: текст — обычный.
                 ScrollView { Text(text).font(.callout).foregroundStyle(.primary).padding(20).frame(maxWidth: 360, alignment: .leading) }
+                    .frame(minHeight: tall ? 213 : nil)
                     .presentationCompactAdaptation(.popover)
             }
     }
@@ -1025,9 +1025,9 @@ struct HabitDetailView: View {
 
                     Card {
                         HStack {
-                            ShareLink(item: HabitCSV.file([habit], name: "\(habit.title).csv")) { Label("Export CSV", systemImage: "square.and.arrow.up") }
+                            ShareLink(items: HabitCSV.files([habit], reasons: store.reasons, prefix: "\(habit.title) ")) { Label("Export CSV", systemImage: "square.and.arrow.up") }
                             Spacer()
-                            InfoButton(text: "CSV, one row per marked day or day with a note:\n• habit_id — the habit's permanent ID (kept after relinking reminders);\n• habit_name;\n• date — yyyy-MM-dd;\n• status — done, partial, over, twice, or none (only a note);\n• note.", tint: .accentColor)
+                            InfoButton(text: HabitCSV.formatInfo, tint: .accentColor)
                         }
                         if habit.isTrashed {
                             Divider()
@@ -1042,7 +1042,7 @@ struct HabitDetailView: View {
                                     Button("Delete Permanently", role: .destructive) {
                                         let title = habit.title
                                         dismiss(); store.delete(habitID)
-                                        Toast.show("Deleted “\(title)” — a backup was saved")
+                                        Toast.show("Deleted “\(title)”.\nA backup was saved.")
                                     }
                                 } message: {
                                     Text("The habit and its history are deleted from this app (a backup is saved first). Reminders are not touched.")
@@ -1118,8 +1118,16 @@ struct HabitDetailView: View {
         }
     }
 
+    /// Настройки привычки — три плашки: о привычке, правила, свои цвета.
     private func settingsCard(_ habit: Habit) -> some View {
-        Card(title: "Habit Settings") {
+        VStack(spacing: 18) {
+            Card(title: "Habit Settings") { aboutGroup(habit) }
+            Card { rulesGroup(habit) }
+            Card { colorsGroup(habit) }
+        }
+    }
+
+    @ViewBuilder private func aboutGroup(_ habit: Habit) -> some View {
             InputRow(title: "Name", placeholder: habit.links.last?.titles.last ?? "Habit",
                      text: Binding(get: { habit.name }, set: { var h = habit; h.name = $0; store.update(h) }))
             Divider()
@@ -1129,6 +1137,10 @@ struct HabitDetailView: View {
             SelectRow(title: "Habit Type", options: [(false, "Good"), (true, "Bad")],
                       selection: Binding(get: { habit.harmful }, set: { var h = habit; h.harmful = $0; store.update(h) }))
             Divider()
+            Toggle("Show Description", isOn: Binding(get: { habit.showsNote }, set: { var h = habit; h.showsNote = $0; store.update(h) }))
+    }
+
+    @ViewBuilder private func rulesGroup(_ habit: Habit) -> some View {
             // Выключили — дни «дважды» остаются в истории, но считаются и рисуются как сделанные.
             Toggle("Twice a day", isOn: Binding(get: { habit.twiceADay }, set: {
                 var h = habit; h.twiceADay = $0
@@ -1136,24 +1148,45 @@ struct HabitDetailView: View {
                 store.update(h)
             }))
             Divider()
-            // Пропуски сверх допустимого подсвечиваются (цвет — настройки привычек → Grid).
-            // У вредной привычки пропуск — это хорошо: строки неактивны.
-            Toggle("Highlight missed days", isOn: Binding(get: { habit.highlightMissed }, set: { var h = habit; h.highlightMissed = $0; store.update(h) }))
-                .disabled(habit.harmful)
-            if habit.highlightMissed && !habit.harmful {
+            // Правило для пропусков — одно из: подсветка пропусков сверх допуска или цель на неделю.
+            SelectRow(title: "Skip rule:", options: Habit.Rule.allCases.map { ($0, $0.title) },
+                      selection: Binding(get: { habit.rule }, set: { var h = habit; h.setRule($0); store.update(h) }))
+            switch habit.rule {
+            case .none:
+                EmptyView()
+            case .missed:
+                // Пропуски сверх допустимого подсвечиваются (цвет — настройки привычек → Grid).
+                // У вредной привычки пропуск — это хорошо: строка неактивна.
                 ValueStepper("Allowed skips in a row:", shown: "\(habit.allowedSkips)", after: habit.allowedSkips == 1 ? "day" : "days",
                              value: Binding(get: { habit.allowedSkips }, set: { var h = habit; h.allowedSkips = $0; store.update(h) }), in: 0...14, step: 1)
+                    .disabled(habit.harmful)
                     .padding(.leading, 20)
+            case .goal:
+                let countsTwice = habit.twiceADay && habit.goalCountsTwice
+                ValueStepper("Times a week:", shown: "\(habit.weeklyGoal)",
+                             value: Binding(get: { habit.weeklyGoal }, set: { var h = habit; h.weeklyGoal = $0; store.update(h) }),
+                             in: 1...(countsTwice ? 14 : 7), step: 1)
+                    .padding(.leading, 20)
+                // Виден всегда; без «Twice a day» неактивен.
+                Toggle("Count twice days as 2", isOn: Binding(get: { habit.goalCountsTwice }, set: {
+                    var h = habit; h.goalCountsTwice = $0
+                    if !$0 { h.weeklyGoal = min(h.weeklyGoal, 7) }
+                    store.update(h)
+                }))
+                .disabled(!habit.twiceADay)
+                .padding(.leading, 20)
             }
             Divider()
-            ValueStepper("Weekly goal:", shown: habit.weeklyGoal == 0 ? "off" : "\(habit.weeklyGoal)", after: habit.weeklyGoal == 0 ? "" : "times",
-                         value: Binding(get: { habit.weeklyGoal }, set: { var h = habit; h.weeklyGoal = $0; store.update(h) }), in: 0...(habit.twiceADay ? 14 : 7), step: 1)
-            Divider()
-            Toggle("Show Description", isOn: Binding(get: { habit.showsNote }, set: { var h = habit; h.showsNote = $0; store.update(h) }))
-            Divider()
             // Причины несделанных дней: пункт меню дня, знаки вопроса и долгие пропуски.
-            Toggle("Why Not Done", isOn: Binding(get: { habit.asksWhyNotDone }, set: { var h = habit; h.asksWhyNotDone = $0; store.update(h) }))
-            Divider()
+            Toggle(isOn: Binding(get: { habit.asksWhyNotDone }, set: { var h = habit; h.asksWhyNotDone = $0; store.update(h) })) {
+                HStack(spacing: 6) {
+                    Text("Why Not Done")
+                    InfoButton(text: habit.questionRuleInfo, tint: .primary, tall: true)
+                }
+            }
+    }
+
+    @ViewBuilder private func colorsGroup(_ habit: Habit) -> some View {
             // Подгруппа: заголовок — как обычная строка, переключатели под ним — с отступом.
             Text("Own color for")
             Group {
@@ -1161,12 +1194,10 @@ struct HabitDetailView: View {
                 OwnColorField(title: "Overdone Icon", hex: habit.overIconHex) { var h = habit; h.overIconHex = $0; store.update(h) }
                 OwnColorField(title: "Twice Mark", hex: habit.twiceIconHex, enabled: habit.twiceADay) { var h = habit; h.twiceIconHex = $0; store.update(h) }
                 OwnColorField(title: "Missed Days", hex: habit.missedHex, fallback: "#FF0000", alpha: false,
-                              enabled: habit.highlightMissed && !habit.harmful) { var h = habit; h.missedHex = $0; store.update(h) }
+                              enabled: habit.rule == .missed && !habit.harmful) { var h = habit; h.missedHex = $0; store.update(h) }
                 OwnColorField(title: "Note Icon", hex: habit.noteIconHex, fallback: "#8E8E93FF") { var h = habit; h.noteIconHex = $0; store.update(h) }
             }
             .padding(.leading, 20)
-
-        }
     }
 
     private func remindersCard(_ habit: Habit) -> some View {
@@ -1241,7 +1272,7 @@ struct GrowingHistoryGrid: View {
         let today = HabitDay.today()
         let style = HabitSettings.style
         let missed = habit.missedDays(today: today)
-        let firstMarked = habit.firstMarkedDay
+        let questions = habit.questionDays(today: today)
 
         VStack(spacing: 8) {
             HStack(spacing: gap) {
@@ -1268,7 +1299,7 @@ struct GrowingHistoryGrid: View {
                             HStack(spacing: gap) {
                                 ForEach(0..<7, id: \.self) { i in
                                     if let day = week[i] {
-                                        dayCell(day, today: today, style: style, missed: missed.contains(HabitDay.key(day)), firstMarked: firstMarked).id(HabitDay.key(day))
+                                        dayCell(day, today: today, style: style, missed: missed.contains(HabitDay.key(day)), questions: questions).id(HabitDay.key(day))
                                     } else {
                                         Color.clear.frame(width: cell, height: cell)
                                     }
@@ -1325,16 +1356,16 @@ struct GrowingHistoryGrid: View {
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { cardTop = $0 }
     }
 
-    private func cellView(_ day: Date, today: Date, style: HabitStyle, size: CGFloat, missed: Bool = false, firstMarked: Date?) -> HabitCell {
+    private func cellView(_ day: Date, today: Date, style: HabitStyle, size: CGFloat, missed: Bool = false, questions: Set<String>) -> HabitCell {
         HabitCell(state: habit.state(day), isToday: day == today, color: habit.color, size: size, style: style,
                   partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, twiceIconHex: habit.twiceIconHex,
                   missed: missed, missedHex: habit.missedHex, hasNote: habit.note(day) != nil,
-                  needsReason: habit.needsReason(day, today: today, firstMarked: firstMarked),
+                  needsReason: questions.contains(HabitDay.key(day)),
                   noteIconHex: habit.noteIconHex,
                   opaqueBackground: Color(.secondarySystemGroupedBackground))
     }
 
-    private func dayCell(_ day: Date, today: Date, style: HabitStyle, missed: Bool, firstMarked: Date?) -> some View {
+    private func dayCell(_ day: Date, today: Date, style: HabitStyle, missed: Bool, questions: Set<String>) -> some View {
         let state = habit.state(day)
         let note = habit.note(day)
         // Обычное меню кнопки, а не контекстное: день не поднимается и не прыгает при закрытии,
@@ -1342,13 +1373,13 @@ struct GrowingHistoryGrid: View {
         // Содержимое меню строится при каждом открытии — дата в шапке всегда этого дня.
         // Рамка кнопки — габариты дня со значком заметки (он выступает за клетку), а форма —
         // ровно контур: иначе при закрытии меню значок обрезался по скруглённому квадрату.
-        let shape = DayShape(cell: cell, hasNote: note != nil, hasQuestion: habit.needsReason(day, today: today, firstMarked: firstMarked))
+        let shape = DayShape(cell: cell, hasNote: note != nil, hasQuestion: questions.contains(HabitDay.key(day)))
         let extra = shape.overhang
         return Menu {
             DayMenuItems(habit: habit, day: day, style: style, setState: { setState(day, $0) }, editNote: { editNote(day) },
                          reasons: reasons, setReason: { setReason(day, $0) }, newReason: { newReason(day) })
         } label: {
-            cellView(day, today: today, style: style, size: cell, missed: missed, firstMarked: firstMarked)
+            cellView(day, today: today, style: style, size: cell, missed: missed, questions: questions)
                 .padding(.top, extra.top)
                 .frame(width: cell + extra.width, height: extra.top + cell + extra.height, alignment: .topLeading)
                 .contentShape(.interaction, shape)
@@ -1678,6 +1709,8 @@ struct HabitSettingsView: View {
     @AppStorage(HabitSettings.Key.buttonSize, store: AppGroup.defaults) private var buttonSize = 40.0
     @AppStorage(HabitSettings.Key.squircleButton, store: AppGroup.defaults) private var squircleButton = true
     @AppStorage(HabitSettings.Key.mainSquircle, store: AppGroup.defaults) private var mainSquircle = true
+    @AppStorage(HabitSettings.Key.mainSquircleSize, store: AppGroup.defaults) private var mainSquircleSize = 32.0
+    @AppStorage(HabitSettings.Key.mainCheckboxSize, store: AppGroup.defaults) private var mainCheckboxSize = 30.0
     @AppStorage(HabitSettings.Key.buttonInset, store: AppGroup.defaults) private var buttonInset = HabitSettings.buttonInset
     @AppStorage(HabitSettings.Key.gridInset, store: AppGroup.defaults) private var gridInset = 18.0
     @AppStorage(HabitSettings.Key.undoneOpacity, store: AppGroup.defaults) private var undoneOpacity = 0.15
@@ -1768,6 +1801,12 @@ struct HabitSettingsView: View {
                 Picker("Today", selection: $mainSquircle) {
                     Text("Today's Day").tag(true)
                     Text("Round Checkbox").tag(false)
+                }
+                // У каждого вида — свой размер.
+                let size = mainSquircle ? $mainSquircleSize : $mainCheckboxSize
+                VStack(alignment: .leading) {
+                    ValueStepper("Size:", shown: "\(Int(size.wrappedValue))", after: "pt", value: size, in: 20...48, step: 1)
+                    Slider(value: size, in: 20...48, step: 1)
                 }
             } header: {
                 RoundedHeader("Main Screen")
@@ -1960,14 +1999,14 @@ struct HabitSettingsView: View {
 
             Section {
                 HStack {
-                    ShareLink(item: HabitCSV.file(store.habits.filter { !$0.isTrashed }, name: "habits.csv")) { Label("Export All Habits (CSV)", systemImage: "square.and.arrow.up") }
+                    ShareLink(items: HabitCSV.files(store.habits.filter { !$0.isTrashed }, reasons: store.reasons)) { Label("Export All Habits (CSV)", systemImage: "square.and.arrow.up") }
                     Spacer()
-                    InfoButton(text: "CSV, one row per marked day or day with a note:\n• habit_id — the habit's permanent ID (kept after relinking reminders);\n• habit_name;\n• date — yyyy-MM-dd;\n• status — done, partial, over, twice, or none (only a note);\n• note.", tint: .accentColor)
+                    InfoButton(text: HabitCSV.formatInfo, tint: .accentColor)
                 }
                 HStack {
                     Button { picking = .csv; pickerShown = true } label: { Label("Import CSV…", systemImage: "square.and.arrow.down") }
                     Spacer()
-                    InfoButton(text: "Reads:\n• this app's CSV (habit_id, habit_name, date, status, note);\n• Loop Habit Tracker: Checkmarks.csv (Date, then a column per habit; YES_MANUAL counts as done, YES_AUTO / NO / SKIP / UNKNOWN as not marked) or one habit's Checkmarks.csv (Date, Value, Notes — the habit is named after its folder);\n• any CSV with a date column (date, day…) and a habit name column (habit, name, task…), optionally a status (done / yes / true / 1, partial, over, twice; no / false / 0 = not marked) and a note.\n\nHabits are matched by ID, then by name; others are created. Days already marked and existing notes are kept. Dates: yyyy-MM-dd, dd.MM.yyyy, MM/dd/yyyy and similar.", tint: .accentColor)
+                    InfoButton(text: "Reads:\n• this app's CSV: pick both habits.csv and habit_days.csv (or only habit_days.csv for habits you already have); the older single-file CSV (habit_id, habit_name, date, status, note) too;\n• Loop Habit Tracker: Checkmarks.csv (Date, then a column per habit; YES_MANUAL counts as done, YES_AUTO / NO / SKIP / UNKNOWN as not marked) or one habit's Checkmarks.csv (Date, Value, Notes — the habit is named after its folder);\n• any CSV with a date column (date, day…) and a habit name column (habit, name, task…), optionally a status (done / yes / true / 1, partial, over, twice; no / false / 0 = not marked) and a note.\n\nHabits are matched by ID, then by name; others are created. Days already marked and existing notes are kept. Dates: yyyy-MM-dd, dd.MM.yyyy, MM/dd/yyyy and similar.", tint: .accentColor)
                 }
             } header: {
                 RoundedHeader("Export & Import")
@@ -2002,19 +2041,20 @@ struct HabitSettingsView: View {
                 HStack {
                     RoundedHeader("Backup")
                     Spacer()
-                    InfoButton(text: "Where: always in Files → On My iPhone → Habits on Reminders, and also in your folder if you choose one (for example a folder in iCloud Drive).\n\nFiles in each folder:\n• habits.json — the current database.\n• habits-previous.json — the database before the last change.\n• habits-daily.json — the database before the first change of the day (an independent copy of the previous day).\n• habits-before-….json — a copy saved before a suspiciously big change (10+ marked days or 2+ habits gone, or 2+ habits lost all linked reminders at once), before a merge and before a restore. Never overwritten. You also get an alert and a notification about a big change.\n• habits.csv — all habits as CSV.\n• settings.json — all settings.\n\nDatabase format (JSON): a list of habits, each with its id, name, color, linked reminders and settings, and the marked days as dates “yyyy-MM-dd”: completions (all marked days), partialDays, overDays and twiceDays (which of them are partially done, overdone, twice), removedDays (unmarked by hand), notes (date → text).\n\nCSV format: one row per marked day or day with a note — habit_id, habit_name, date (yyyy-MM-dd), status (done, partial, over, twice or none for a note only), note.\n\nRestore from Backup… replaces all habits with a chosen habits*.json; the current ones go to habits-previous.json first.")
+                    InfoButton(text: "Where: always in Files → On My iPhone → Habits on Reminders, and also in your folder if you choose one (for example a folder in iCloud Drive).\n\nFiles in each folder:\n• habits.json — the current database.\n• habits-previous.json — the database before the last change.\n• habits-daily.json — the database before the first change of the day (an independent copy of the previous day).\n• habits-before-….json — a copy saved before a suspiciously big change (10+ marked days or 2+ habits gone, or 2+ habits lost all linked reminders at once), before a merge and before a restore. Never overwritten. You also get an alert and a notification about a big change.\n• habits.csv and habit_days.csv — all habits as CSV.\n• settings.json — all settings.\n\nDatabase format (JSON): a list of habits, each with its id, name, color, linked reminders and settings, and the marked days as dates “yyyy-MM-dd”: completions (all marked days), partialDays, overDays and twiceDays (which of them are partially done, overdone, twice), removedDays (unmarked by hand), notes (date → text).\n\nCSV format: habits.csv — habit_id, habit_name; habit_days.csv — habit_id, date (yyyy-MM-dd), status (done, partial, over, twice or none), note, skip_reason.\n\nRestore from Backup… replaces all habits with a chosen habits*.json; the current ones go to habits-previous.json first.")
                 }
             }
         }
         .fileImporter(isPresented: $pickerShown,
-                      allowedContentTypes: picking == .folder ? [.folder] : picking == .backup ? [.json] : [.commaSeparatedText, .plainText, .text]) { result in
+                      allowedContentTypes: picking == .folder ? [.folder] : picking == .backup ? [.json] : [.commaSeparatedText, .plainText, .text],
+                      allowsMultipleSelection: picking == .csv) { result in
             let mode = picking
-            guard case .success(let url) = result else {
+            guard case .success(let urls) = result, let url = urls.first else {
                 if case .failure(let error) = result { Toast.show("Couldn't open: \(error.localizedDescription)", error: true) }
                 return
             }
-            let access = url.startAccessingSecurityScopedResource()
-            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            let accessed = urls.filter { $0.startAccessingSecurityScopedResource() }
+            defer { accessed.forEach { $0.stopAccessingSecurityScopedResource() } }
             switch mode {
             case .folder:
                 FilesBackup.setFolder(url)
@@ -2027,8 +2067,12 @@ struct HabitSettingsView: View {
                     Toast.show("This file isn't a habits backup", error: true)
                 }
             case .csv:
-                let text = (try? String(contentsOf: url, encoding: .utf8)) ?? (try? String(contentsOf: url, encoding: .isoLatin1)) ?? ""
-                let imported = HabitCSV.parse(text, fileName: url.pathComponents.suffix(2).joined(separator: "/"))
+                // Можно выбрать сразу обе таблицы (привычки и дни).
+                let files = urls.map { url in
+                    (text: (try? String(contentsOf: url, encoding: .utf8)) ?? (try? String(contentsOf: url, encoding: .isoLatin1)) ?? "",
+                     fileName: url.pathComponents.suffix(2).joined(separator: "/"))
+                }
+                let imported = HabitCSV.parse(files: files)
                 if imported.isEmpty {
                     Toast.show("No habits found in this file", error: true)
                 } else {
@@ -2064,11 +2108,11 @@ struct BannerSection: View {
                 ForEach(ToastSettings.Corners.allCases) { Text($0.title).tag($0.rawValue) }
             }
             .pickerStyle(.segmented)
-            Button("Show Banner") { Toast.show("This is how banners look after an action. A long message shows two lines first — tap the banner to read the rest of it, swipe it up to close.") }
+            Button("Show Banner") { Toast.show("This is how banners look after an action.\nA long message shows two lines first.\nTap the banner to read all of it, tap again to fold it.\nSwipe it up to close.") }
         } header: {
             RoundedHeader("Banner")
         } footer: {
-            Text("The banner at the top after an action: up to two lines — tap it to show the whole text. It closes after 10 seconds (unless opened) or when swiped up.")
+            Text("The banner at the top after an action: up to two lines — tap it to show the whole text, tap again to fold it. It closes after 10 seconds (unless opened) or when swiped up.")
         }
     }
 }

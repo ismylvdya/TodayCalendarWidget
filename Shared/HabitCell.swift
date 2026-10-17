@@ -415,3 +415,29 @@ struct MissedLinks: View {
         .allowsHitTesting(false)
     }
 }
+
+/// Круглый чекбокс сегодняшнего дня (главная и виджеты): пустой, отмечен, у «Twice a day» —
+/// дважды (отмеченный в кольце). Пропорции — от размера 30 pt.
+struct RoundCheckbox: View {
+    let habit: Habit
+    let size: CGFloat
+    var today = HabitDay.today()
+
+    var body: some View {
+        let state = habit.state(today)
+        let k = size / 30
+        ZStack {
+            if habit.twiceADay && state == .twice {
+                // Внутри — тот же отмеченный кружок, что у обычного дня, кольцо — снаружи, с прежними
+                // пропорциями (было 30 на внутренний 20) и выходит за рамку, не сдвигая соседей.
+                Circle().strokeBorder(habit.color, lineWidth: 2.7 * k).frame(width: 34.5 * k, height: 34.5 * k)
+                Image(systemName: "checkmark.circle.fill").resizable().frame(width: 24 * k, height: 24 * k)
+            } else {
+                Image(systemName: state == .none ? "circle" : "checkmark.circle.fill").resizable()
+                    .frame(width: 24 * k, height: 24 * k)
+            }
+        }
+        .frame(width: size, height: size)
+        .foregroundStyle(habit.color)
+    }
+}
