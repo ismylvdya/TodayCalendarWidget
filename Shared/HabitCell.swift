@@ -36,31 +36,41 @@ struct HabitCell: View {
         ZStack(alignment: .bottomTrailing) {
             if let opaqueBackground { shape.fill(opaqueBackground) }
             cell
-            // Прозрачная обводка вокруг значков: равномерно вырезаем чуть увеличенный силуэт.
-            // Заметка — у правого нижнего угла, знак вопроса — у правого верхнего.
-            if hasNote {
-                DayBadgeView(badge: .note, size: badgeSize, cutout: true, color: .black)
-                    .blendMode(.destinationOut)
-                    .offset(x: badgeOffset.width, y: badgeOffset.height)
-            }
-            if needsReason {
-                DayBadgeView(badge: .question, size: badgeSize, cutout: true, color: .black)
-                    .blendMode(.destinationOut)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .offset(x: badgeOffset.width, y: -badgeOffset.height)
+            // Без непрозрачной подложки обводка значков — прозрачная: вырезаем чуть увеличенный
+            // силуэт из клетки. Заметка — у правого нижнего угла, знак вопроса — у правого верхнего.
+            if opaqueBackground == nil {
+                if hasNote {
+                    DayBadgeView(badge: .note, size: badgeSize, cutout: true, color: .black)
+                        .blendMode(.destinationOut)
+                        .offset(x: badgeOffset.width, y: badgeOffset.height)
+                }
+                if needsReason {
+                    DayBadgeView(badge: .question, size: badgeSize, cutout: true, color: .black)
+                        .blendMode(.destinationOut)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .offset(x: badgeOffset.width, y: -badgeOffset.height)
+                }
             }
         }
         .compositingGroup()
+        // С подложкой (в приложении) обводка — силуэт цвета подложки под значком: он часть
+        // самого дня и уходит вместе с ним в меню, а полоса пропусков под днём остаётся целой.
         .overlay(alignment: .bottomTrailing) {
             if hasNote {
-                DayBadgeView(badge: .note, size: badgeSize, cutout: false, color: noteColor)
-                    .offset(x: badgeOffset.width, y: badgeOffset.height)
+                ZStack {
+                    if let opaqueBackground { DayBadgeView(badge: .note, size: badgeSize, cutout: true, color: opaqueBackground) }
+                    DayBadgeView(badge: .note, size: badgeSize, cutout: false, color: noteColor)
+                }
+                .offset(x: badgeOffset.width, y: badgeOffset.height)
             }
         }
         .overlay(alignment: .topTrailing) {
             if needsReason {
-                DayBadgeView(badge: .question, size: badgeSize, cutout: false, color: badgeColor)
-                    .offset(x: badgeOffset.width, y: -badgeOffset.height)
+                ZStack {
+                    if let opaqueBackground { DayBadgeView(badge: .question, size: badgeSize, cutout: true, color: opaqueBackground) }
+                    DayBadgeView(badge: .question, size: badgeSize, cutout: false, color: badgeColor)
+                }
+                .offset(x: badgeOffset.width, y: -badgeOffset.height)
             }
         }
         .frame(width: size, height: size)
@@ -75,7 +85,7 @@ struct HabitCell: View {
             }
             switch state {
             case .none:
-                EmptyView()
+                undoneMark
             case .done:
                 shape.fill(color).widgetAccentable()
             case .partial:
@@ -87,6 +97,22 @@ struct HabitCell: View {
                 shape.fill(color).widgetAccentable()
                 twice
             }
+        }
+    }
+
+    /// Вид невыполненного дня по настройке — в цвет привычки (на пропуске — в цвет пропусков).
+    @ViewBuilder private var undoneMark: some View {
+        let base = missed ? style.missedColor(missedHex) : color
+        switch style.undonePattern {
+        case .plain:
+            EmptyView()
+        case .outline:
+            shape.strokeBorder(base.opacity(style.undoneIconOpacity), lineWidth: max(0.5, size * style.undoneOutlineWidth)).widgetAccentable()
+        case .icon:
+            Image(systemName: style.undoneSymbol).resizable().scaledToFit()
+                .foregroundStyle(base.opacity(style.undoneIconOpacity))
+                .frame(width: size * style.undoneIconScale, height: size * style.undoneIconScale)
+                .widgetAccentable()
         }
     }
 
@@ -212,8 +238,8 @@ struct NoteBadge: View {
         let w = size * 0.78, h = size
         if cutout {
             DocShape()
-                .stroke(.black, style: StrokeStyle(lineWidth: lineWidth * 2, lineJoin: .round))
-                .background(DocShape().fill(.black))
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth * 2, lineJoin: .round))
+                .background(DocShape().fill(color))
                 .frame(width: w, height: h)
         } else {
             ZStack {
@@ -237,13 +263,17 @@ struct QuestionBadge: View {
         let mark = Image(systemName: "questionmark").resizable().scaledToFit().fontWeight(.heavy)
             .frame(width: size * 0.78, height: size)
         if cutout {
+            // Копии знака со сдвигом по двум окружностям и без сдвига: у маленькой точки
+            // сдвиг больше её самой, и одна окружность оставляла её середину непокрытой.
             ZStack {
+                mark
                 ForEach(0..<12, id: \.self) { i in
                     let a = Double(i) / 12 * 2 * .pi
                     mark.offset(x: cos(a) * lineWidth, y: sin(a) * lineWidth)
+                    mark.offset(x: cos(a) * lineWidth / 2, y: sin(a) * lineWidth / 2)
                 }
             }
-            .foregroundStyle(.black)
+            .foregroundStyle(color)
         } else {
             mark.foregroundStyle(color)
         }

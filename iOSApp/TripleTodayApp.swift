@@ -74,6 +74,13 @@ struct ToastView: View {
         .padding(.vertical, 10)
         .background(.regularMaterial, in: Capsule())
         .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+        // Под плашкой и ещё примерно на 25 pt вокруг — системное размытие, мягко сходящее на нет.
+        .background {
+            Rectangle().fill(.ultraThinMaterial)
+                .padding(-25)
+                .mask(Capsule().padding(-14).blur(radius: 11))
+                .allowsHitTesting(false)
+        }
         // Уже экрана: кнопка «назад» слева остаётся открытой, текст переносится в высоту.
         .frame(width: min(max(width, ToastSettings.widthRange.lowerBound), ToastSettings.widthRange.upperBound))
 

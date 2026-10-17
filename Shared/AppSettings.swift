@@ -144,6 +144,12 @@ enum HabitSettings {
         static let twiceDarkness = "habitTwiceDarkness"
         static let reasonAlertDays = "habitReasonAlertDays"
         static let squircleButton = "habitSquircleButton"
+        static let mainSquircle = "habitMainSquircle"
+        static let undonePattern = "habitUndonePattern"
+        static let undoneSymbol = "habitUndoneSymbol"
+        static let undoneIconScale = "habitUndoneIconScale"
+        static let undoneIconOpacity = "habitUndoneIconOpacity"
+        static let undoneOutlineWidth = "habitUndoneOutlineWidth"
     }
 
 
@@ -164,6 +170,8 @@ enum HabitSettings {
     static var widgetWeeks: Int { max(1, Int(double(Key.widgetWeeks, 4))) }
     static var buttonSize: Double { double(Key.buttonSize, 40) }
     /// Кнопка виджета — сегодняшний день как клетка сетки (иначе — круглый чекбокс).
+    /// На главной у привычек — сегодняшний день как клетка сетки (иначе — круглый чекбокс).
+    static var mainSquircle: Bool { d.object(forKey: Key.mainSquircle) == nil ? true : d.bool(forKey: Key.mainSquircle) }
     static var squircleButton: Bool { d.object(forKey: Key.squircleButton) == nil ? true : d.bool(forKey: Key.squircleButton) }
     /// Отступ кнопки от верхнего и правого края виджета.
     static var buttonInset: Double { double(Key.buttonInset, squircleButton ? 14 : 9) }
@@ -176,6 +184,11 @@ enum HabitSettings {
 
     static var style: HabitStyle {
         HabitStyle(undoneOpacity: double(Key.undoneOpacity, 0.15),
+                   undonePattern: UndonePattern(rawValue: d.string(forKey: Key.undonePattern) ?? "") ?? .plain,
+                   undoneSymbol: symbol(Key.undoneSymbol, "xmark"),
+                   undoneIconScale: double(Key.undoneIconScale, 0.4),
+                   undoneIconOpacity: double(Key.undoneIconOpacity, 0.5),
+                   undoneOutlineWidth: double(Key.undoneOutlineWidth, 0.08),
                    partialPattern: PartialPattern(rawValue: d.string(forKey: Key.partialPattern) ?? "") ?? .icon,
                    stripeWidth: double(Key.stripeWidth, 6),
                    doneStripeOpacity: double(Key.doneStripeOpacity, 1),
@@ -212,6 +225,19 @@ enum TwicePattern: String, CaseIterable, Identifiable {
 }
 
 /// Как показывать недоделанный день.
+/// Вид невыполненного дня: только бледная заливка, с обводкой цвета привычки или с иконкой.
+enum UndonePattern: String, CaseIterable, Identifiable {
+    case plain, outline, icon
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .plain: "Lighter fill"
+        case .outline: "Outline"
+        case .icon: "Icon"
+        }
+    }
+}
+
 enum PartialPattern: String, CaseIterable, Identifiable {
     case icon, lighter, outline, diagonal, half
     var id: String { rawValue }
@@ -229,6 +255,13 @@ enum PartialPattern: String, CaseIterable, Identifiable {
 /// Снимок настроек отрисовки клеток — для сетки и виджетов.
 struct HabitStyle {
     var undoneOpacity = 0.15
+    var undonePattern = UndonePattern.plain
+    /// Иконка невыполненного дня (крестик, точка…), её размер и непрозрачность.
+    var undoneSymbol = "xmark"
+    var undoneIconScale = 0.4
+    var undoneIconOpacity = 0.5
+    /// Толщина обводки невыполненного дня — доля стороны клетки.
+    var undoneOutlineWidth = 0.08
     var partialPattern = PartialPattern.icon
     var stripeWidth = 6.0
     var doneStripeOpacity = 1.0

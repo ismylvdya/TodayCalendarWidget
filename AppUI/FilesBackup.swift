@@ -18,6 +18,7 @@ enum FilesBackup {
         CalendarSettings.Key.defaultDayStart, CalendarSettings.Key.defaultDayEnd,
         HabitSettings.Key.dayCutoffHour, HabitSettings.Key.widgetWeeks, HabitSettings.Key.buttonSize, HabitSettings.Key.buttonInset,
         HabitSettings.Key.gridInset, HabitSettings.Key.titleSize, HabitSettings.Key.undoneOpacity, HabitSettings.Key.partialPattern,
+        HabitSettings.Key.undonePattern, HabitSettings.Key.undoneSymbol, HabitSettings.Key.undoneIconScale, HabitSettings.Key.undoneIconOpacity, HabitSettings.Key.undoneOutlineWidth,
         HabitSettings.Key.stripeWidth, HabitSettings.Key.doneStripeOpacity, HabitSettings.Key.undoneStripeOpacity,
         HabitSettings.Key.partialSymbol, HabitSettings.Key.overSymbol, HabitSettings.Key.partialIconScale,
         HabitSettings.Key.overIconScale, HabitSettings.Key.overIconDarker, HabitSettings.Key.overIconDarkness,

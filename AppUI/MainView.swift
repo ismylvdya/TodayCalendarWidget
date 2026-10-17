@@ -547,15 +547,51 @@ struct TodayCheckbox: View {
     let setReason: (UUID?) -> Void
     let newReason: () -> Void
     @State private var longPresses = 0
+    @AppStorage(HabitSettings.Key.mainSquircle, store: AppGroup.defaults) private var squircle = true
 
     var body: some View {
+        if squircle { day } else { checkbox }
+    }
+
+    /// Прежний круглый чекбокс (по выбору в настройках) — в столбце той же ширины, что и день.
+    private var checkbox: some View {
+        let today = HabitDay.today()
+        let state = habit.state(today)
+        let twice = habit.twiceADay && state == .twice
+        return Menu {
+            DayMenuItems(habit: habit, day: today, style: HabitSettings.style, setState: setState, editNote: editNote,
+                         reasons: reasons, setReason: setReason, newReason: newReason)
+        } label: {
+            ZStack {
+                if twice {
+                    Circle().strokeBorder(habit.color, lineWidth: 2.25).frame(width: 30, height: 30)
+                    Image(systemName: "checkmark.circle.fill").font(.system(size: 20))
+                } else {
+                    Image(systemName: state == .none ? "circle" : "checkmark.circle.fill").font(.system(size: 24))
+                }
+            }
+            .frame(width: 30, height: 30)
+            .foregroundStyle(habit.color)
+            .contentShape(Circle())
+        } primaryAction: {
+            tap()
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.borderless)
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.35).onEnded { _ in longPresses += 1 })
+        .frame(width: Self.size)
+        .sensoryFeedback(.impact(weight: .light), trigger: state)
+        .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
+    }
+
+    private var day: some View {
         let today = HabitDay.today()
         let state = habit.state(today)
         let size = Self.size
         // Сегодня знака вопроса нет (день ещё идёт), значок может быть только у заметки.
         let shape = DayShape(cell: size, hasNote: habit.note(today) != nil, hasQuestion: false)
         let extra = shape.overhang
-        Menu {
+        return Menu {
             DayMenuItems(habit: habit, day: today, style: HabitSettings.style, setState: setState, editNote: editNote,
                          reasons: reasons, setReason: setReason, newReason: newReason)
         } label: {
@@ -1241,11 +1277,6 @@ struct GrowingHistoryGrid: View {
                             .background(alignment: .topLeading) {
                                 MissedLinks(flags: week.map { $0.map { missed.contains(HabitDay.key($0)) } ?? false }, cell: cell, gap: gap,
                                             color: style.missedColor(habit.missedHex).opacity(style.missedLinkOpacity),
-                                            badges: week.map { day in
-                                                guard let day else { return [] }
-                                                return (habit.note(day) != nil ? [.note] : [])
-                                                    + (habit.needsReason(day, today: today, firstMarked: firstMarked) ? [.question] : [])
-                                            },
                                             cutDays: false)
                             }
                         }
@@ -1646,10 +1677,16 @@ struct HabitSettingsView: View {
     @AppStorage(HabitSettings.Key.widgetWeeks, store: AppGroup.defaults) private var weeks = 4.0
     @AppStorage(HabitSettings.Key.buttonSize, store: AppGroup.defaults) private var buttonSize = 40.0
     @AppStorage(HabitSettings.Key.squircleButton, store: AppGroup.defaults) private var squircleButton = true
+    @AppStorage(HabitSettings.Key.mainSquircle, store: AppGroup.defaults) private var mainSquircle = true
     @AppStorage(HabitSettings.Key.buttonInset, store: AppGroup.defaults) private var buttonInset = HabitSettings.buttonInset
     @AppStorage(HabitSettings.Key.gridInset, store: AppGroup.defaults) private var gridInset = 18.0
     @AppStorage(HabitSettings.Key.undoneOpacity, store: AppGroup.defaults) private var undoneOpacity = 0.15
     @AppStorage(HabitSettings.Key.partialPattern, store: AppGroup.defaults) private var pattern = PartialPattern.icon.rawValue
+    @AppStorage(HabitSettings.Key.undonePattern, store: AppGroup.defaults) private var undonePattern = UndonePattern.plain.rawValue
+    @AppStorage(HabitSettings.Key.undoneSymbol, store: AppGroup.defaults) private var undoneSymbol = "xmark"
+    @AppStorage(HabitSettings.Key.undoneIconScale, store: AppGroup.defaults) private var undoneIconScale = 0.4
+    @AppStorage(HabitSettings.Key.undoneIconOpacity, store: AppGroup.defaults) private var undoneIconOpacity = 0.5
+    @AppStorage(HabitSettings.Key.undoneOutlineWidth, store: AppGroup.defaults) private var undoneOutlineWidth = 0.08
     @AppStorage(HabitSettings.Key.stripeWidth, store: AppGroup.defaults) private var stripeWidth = 6.0
     @AppStorage(HabitSettings.Key.doneStripeOpacity, store: AppGroup.defaults) private var doneStripeOpacity = 1.0
     @AppStorage(HabitSettings.Key.undoneStripeOpacity, store: AppGroup.defaults) private var undoneStripeOpacity = 0.13
@@ -1678,7 +1715,12 @@ struct HabitSettingsView: View {
     @State private var hasAccess = ReminderSync.hasAccess
 
     private var previewStyle: HabitStyle {
-        HabitStyle(undoneOpacity: undoneOpacity, partialPattern: PartialPattern(rawValue: pattern) ?? .icon,
+        HabitStyle(undoneOpacity: undoneOpacity,
+                   undonePattern: UndonePattern(rawValue: undonePattern) ?? .plain,
+                   undoneSymbol: undoneSymbol.isEmpty ? "xmark" : undoneSymbol,
+                   undoneIconScale: undoneIconScale, undoneIconOpacity: undoneIconOpacity,
+                   undoneOutlineWidth: undoneOutlineWidth,
+                   partialPattern: PartialPattern(rawValue: pattern) ?? .icon,
                    stripeWidth: stripeWidth, doneStripeOpacity: doneStripeOpacity, undoneStripeOpacity: undoneStripeOpacity,
                    partialSymbol: partialSymbol.isEmpty ? "tortoise.fill" : partialSymbol,
                    overSymbol: overSymbol.isEmpty ? "bolt.fill" : overSymbol,
@@ -1720,6 +1762,15 @@ struct HabitSettingsView: View {
                         Label("Allow Access to Reminders", systemImage: "lock.open")
                     }
                 }
+            }
+
+            Section {
+                Picker("Today", selection: $mainSquircle) {
+                    Text("Today's Day").tag(true)
+                    Text("Round Checkbox").tag(false)
+                }
+            } header: {
+                RoundedHeader("Main Screen")
             }
 
             Section {
@@ -1794,9 +1845,39 @@ struct HabitSettingsView: View {
             }
             .listSectionSpacing(18)
 
+            BannerSection()
+
             SkipReasonsSection(store: store)
 
-            BannerSection()
+            Section {
+                preview([.none])
+                Picker("Style", selection: $undonePattern) {
+                    ForEach(UndonePattern.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                if undonePattern == UndonePattern.icon.rawValue {
+                    SymbolField(title: "Icon", symbol: $undoneSymbol)
+                    VStack(alignment: .leading) {
+                        Text("Icon size: \(Int(undoneIconScale * 100))% of the day")
+                        Slider(value: $undoneIconScale, in: 0...1)
+                    }
+                }
+                if undonePattern == UndonePattern.outline.rawValue {
+                    VStack(alignment: .leading) {
+                        Text("Outline width: \(Int((undoneOutlineWidth * 100).rounded()))% of the day")
+                        Slider(value: $undoneOutlineWidth, in: 0.01...0.3)
+                    }
+                }
+                if undonePattern != UndonePattern.plain.rawValue {
+                    VStack(alignment: .leading) {
+                        Text("\(undonePattern == UndonePattern.icon.rawValue ? "Icon" : "Outline") opacity: \(Int(undoneIconOpacity * 100))%")
+                        Slider(value: $undoneIconOpacity, in: 0...1)
+                    }
+                }
+            } header: {
+                RoundedHeader("Not Done")
+            } footer: {
+                Text("Icon: any SF Symbol — xmark for a cross, circle.fill for a dot. Drawn in the habit color (the missed color on missed days).")
+            }
 
             Section {
                 preview([.partial])
