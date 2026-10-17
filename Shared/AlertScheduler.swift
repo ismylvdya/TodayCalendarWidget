@@ -1,16 +1,16 @@
-#if os(iOS)
 import EventKit
 import UserNotifications
 import WidgetKit
 
 /// Свои уведомления для событий с alert (вместо уведомлений Calendar, которые пользователь выключает).
+/// Общие для iOS и macOS: на Mac их шлёт фоновое приложение Calendar Widget.
 /// Уведомления расписываются заранее: при синхронизации все наши запланированные уведомления
 /// заменяются актуальными на ближайшие дни.
 enum AlertScheduler {
     static let category = "EVENT_ALERT"
     static let deleteAction = "DELETE_EVENT"
     private static let idPrefix = "alert|"
-    /// iOS держит не больше 64 запланированных уведомлений на приложение; оставляем запас.
+    /// iOS (и macOS) держит не больше 64 запланированных уведомлений на приложение; оставляем запас.
     private static let limit = 60
 
     /// Категория уведомлений о событиях — с кнопкой «Delete event».
@@ -210,5 +210,3 @@ enum AlertScheduler {
         return URL(string: "calshow:\(Int(start - 3600))")
     }
 }
-
-#endif

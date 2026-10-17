@@ -2050,6 +2050,7 @@ struct HabitSettingsView: View {
 /// Плашка сверху после действий: ширина и форма углов.
 struct BannerSection: View {
     @AppStorage(ToastSettings.Key.width, store: AppGroup.defaults) private var width = ToastSettings.defaultWidth
+    @AppStorage(ToastSettings.Key.corners, store: AppGroup.defaults) private var corners = ToastSettings.Corners.round.rawValue
 
     var body: some View {
         Section {
@@ -2059,6 +2060,10 @@ struct BannerSection: View {
                              in: ToastSettings.widthRange, step: 1)
                 Slider(value: $width, in: ToastSettings.widthRange, step: 1)
             }
+            Picker("Corners", selection: $corners) {
+                ForEach(ToastSettings.Corners.allCases) { Text($0.title).tag($0.rawValue) }
+            }
+            .pickerStyle(.segmented)
             Button("Show Banner") { Toast.show("This is how banners look after an action") }
         } header: {
             RoundedHeader("Banner")

@@ -185,7 +185,8 @@ struct HabitHeader: View {
                     HabitCell(state: habit.state(today), isToday: true, color: habit.color, size: size, style: HabitSettings.style,
                               partialIconHex: habit.partialIconHex, overIconHex: habit.overIconHex, twiceIconHex: habit.twiceIconHex)
                 } else {
-                    Image(systemName: done ? "xmark.circle" : "checkmark.circle.fill")
+                    // Не отмечено — контур галочки, отмечено — залитый крестик (снять отметку).
+                    Image(systemName: done ? "xmark.circle.fill" : "checkmark.circle")
                         .resizable()
                         .foregroundStyle(habit.color)
                         .frame(width: size, height: size)
