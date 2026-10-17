@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.5",
+          "buildVersion": "15",
+          "date": "2026-10-17",
+          "localizedDescription": "The app is now called Habits on the Home Screen. Page titles shrink smoothly into the bar when you scroll. Calendar widget colors match Apple's Calendar (darker titles in light mode, denser events and a darker background in dark mode). Backups are now four clear files (habit settings, a table of days, habit names, app settings) with earlier copies in a backups folder. An alert added to an event that already started today notifies right away. New habits start with Why Not Done off.",
+          "size": 1479528,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.5/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.4",
           "buildVersion": "14",
           "date": "2026-10-17",
@@ -150,11 +159,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.4",
+      "version": "1.5",
       "versionDate": "2026-10-17",
-      "versionDescription": "Each habit now has one skip rule — Missed Days or Weekly Goal (with an option to count twice days as 2) — and question marks show only on days that break it. Habit settings are grouped into three cards. CSV export is now two tables (habits and days, with notes and skip reasons). Widgets use the same round checkbox as the main screen, the main screen's today mark has a size setting, and banners fold back on a second tap.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.4/HabitsOnReminders.ipa",
-      "size": 1456992
+      "versionDescription": "The app is now called Habits on the Home Screen. Page titles shrink smoothly into the bar when you scroll. Calendar widget colors match Apple's Calendar (darker titles in light mode, denser events and a darker background in dark mode). Backups are now four clear files (habit settings, a table of days, habit names, app settings) with earlier copies in a backups folder. An alert added to an event that already started today notifies right away. New habits start with Why Not Done off.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.5/HabitsOnReminders.ipa",
+      "size": 1479528
     }
   ],
   "news": [],
