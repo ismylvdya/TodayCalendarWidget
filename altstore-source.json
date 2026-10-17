@@ -3,7 +3,7 @@
   "identifier": "com.chumbulev.TripleToday.source",
   "subtitle": "Habit tracker on top of Reminders and calendar widgets",
   "website": "https://github.com/ismylvdya/TodayCalendarWidget",
-  "iconURL": "https://raw.githubusercontent.com/ismylvdya/TodayCalendarWidget/main/Icons/icon-ios.png?v=2",
+  "iconURL": "https://github.com/ismylvdya.png",
   "apps": [
     {
       "name": "Habits on Reminders",
