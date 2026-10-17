@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.3.4",
+          "buildVersion": "13",
+          "date": "2026-10-17",
+          "localizedDescription": "The calendar widget's alert bell now sits in the event's top-right corner and fits even half-hour events; its size and distance from the edges are adjustable in Calendar settings. Banners show up to two lines — tap one to read the whole message, swipe it up to close.",
+          "size": 1423767,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.3.4/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.3.3",
           "buildVersion": "12",
           "date": "2026-10-17",
@@ -132,11 +141,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.3.3",
+      "version": "1.3.4",
       "versionDate": "2026-10-17",
-      "versionDescription": "Banners can be round or squircle again (Settings → Banner), and while a banner shows nothing peeks out above it. The widget's round checkbox shows an outlined check, and a filled cross once done.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.3.3/HabitsOnReminders.ipa",
-      "size": 1422668
+      "versionDescription": "The calendar widget's alert bell now sits in the event's top-right corner and fits even half-hour events; its size and distance from the edges are adjustable in Calendar settings. Banners show up to two lines — tap one to read the whole message, swipe it up to close.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.3.4/HabitsOnReminders.ipa",
+      "size": 1423767
     }
   ],
   "news": [],
