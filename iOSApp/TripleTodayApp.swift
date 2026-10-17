@@ -86,11 +86,11 @@ struct ToastView: View {
         .padding(.vertical, 10)
         .background(.regularMaterial, in: shape)
         .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
-        // Под плашкой и ещё примерно на 25 pt вокруг — системное размытие, мягко сходящее на нет.
+        // Под плашкой и ещё примерно на 31 pt вокруг — системное размытие, мягко сходящее на нет.
         .background {
             Rectangle().fill(.ultraThinMaterial)
-                .padding(-25)
-                .mask(shape.padding(-14).blur(radius: 11))
+                .padding(-31)
+                .mask(shape.padding(-18).blur(radius: 14))
                 .allowsHitTesting(false)
         }
         // Уже экрана: кнопка «назад» слева остаётся открытой, текст переносится в высоту.
@@ -104,28 +104,11 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     private let store = EKEventStore()
 
-    /// Низ плашки на экране — пока она висит, всё выше него скрыто (кнопка «назад» и заголовок
-    /// не торчат из-под неё).
-    @State private var toastBottom: CGFloat = 0
-
     var body: some View {
-        ZStack {
-            Color(.systemGroupedBackground).ignoresSafeArea()
-            MainView(openHabit: router.habit)
-                .mask {
-                    VStack(spacing: 0) {
-                        Color.clear.frame(height: router.toast == nil ? 0 : toastBottom)
-                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                            .frame(height: router.toast == nil ? 0 : 14)
-                        Color.black
-                    }
-                    .ignoresSafeArea()
-                }
-        }
+        MainView(openHabit: router.habit)
             .overlay(alignment: .top) {
                 if let toast = router.toast {
                     ToastView(toast: toast)
-                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { toastBottom = $0 }
                         .transition(.move(edge: .top).combined(with: .opacity))
                         // Висит 10 секунд; раньше — нажатием или смахиванием вверх.
                         .onTapGesture { withAnimation { router.toast = nil } }
