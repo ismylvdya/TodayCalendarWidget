@@ -31,6 +31,7 @@ enum AlertScheduler {
     /// запланировано (nil — нет доступа к календарю или уведомлениям, либо они выключены).
     @discardableResult
     static func sync(now: Date = Date()) async -> Int? {
+        await removeLeftovers()
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else { return nil }
         let center = UNUserNotificationCenter.current()
         guard await center.notificationSettings().authorizationStatus == .authorized else { return nil }
@@ -53,6 +54,18 @@ enum AlertScheduler {
         }
         await removeDeliveredForMovedEvents()
         return requests.count
+    }
+
+    /// Приложение шлёт только уведомления о событиях. Всё остальное, что осталось в очереди iOS
+    /// от прежних версий (повторяющиеся напоминания привычек «habit|…», уведомления о долгом
+    /// пропуске «skip|…», тестовые), — убираем: и запланированные, и уже показанные.
+    private static func removeLeftovers() async {
+        let center = UNUserNotificationCenter.current()
+        let stale = await center.pendingNotificationRequests().map(\.identifier).filter { !$0.hasPrefix(idPrefix) }
+        if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: stale) }
+        let delivered = await center.deliveredNotifications().map(\.request.identifier)
+            .filter { $0.hasPrefix("habit|") || $0.hasPrefix("skip|") || $0.hasPrefix("skip-sample|") || $0 == "attachment-test" }
+        if !delivered.isEmpty { center.removeDeliveredNotifications(withIdentifiers: delivered) }
     }
 
     /// После нажатия или смахивания iOS убирает уведомление — кладём его обратно тихо
