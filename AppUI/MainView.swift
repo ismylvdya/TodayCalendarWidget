@@ -23,24 +23,31 @@ struct RoundedHeader: View {
 struct PageTitle: View {
     /// На вложенных экранах заголовок ниже, чем на главном (из-за кнопки «назад»).
     static let subpageRaise: CGFloat = 20
-    /// Отступ первой строки заголовка от краёв содержимого на вложенных экранах — до правого
-    /// края кнопки «назад» (и столько же справа). Следующие строки — на всю ширину.
-    static let sideInset: CGFloat = 46
-    static let font = UIFont.systemFont(ofSize: 34, weight: .bold).rounded
+    /// Отступ первой строки заголовка от краёв содержимого на вложенных экранах: кнопка «назад»
+    /// (16 от края экрана, 44 шириной) и после неё такой же зазор, 16; справа — столько же.
+    /// Следующие строки — на всю ширину.
+    static let sideInset: CGFloat = 60
+    static let size: CGFloat = 34
+    static let font = UIFont.systemFont(ofSize: size, weight: .bold).rounded
 
     let title: String
     var sideInset: CGFloat = 0
-    init(_ title: String, sideInset: CGFloat = 0) { self.title = title; self.sideInset = sideInset }
+    /// Размер шрифта (меньше 34 — заголовок, уменьшающийся при прокрутке).
+    var size: CGFloat = PageTitle.size
+    init(_ title: String, sideInset: CGFloat = 0, size: CGFloat = PageTitle.size) {
+        self.title = title; self.sideInset = sideInset; self.size = size
+    }
 
     var body: some View {
         // Ширина содержимого страницы: экран без полей по 16.
         let full = UIScreen.main.bounds.width - 32
-        let (first, rest) = Self.split(title, firstWidth: full - 2 * sideInset)
+        let (first, rest) = Self.split(title, firstWidth: full - 2 * sideInset,
+                                       font: UIFont.systemFont(ofSize: size, weight: .bold).rounded)
         VStack(spacing: 0) {
             Text(first).padding(.horizontal, sideInset)
             if !rest.isEmpty { Text(rest) }
         }
-        .font(.system(size: 34, weight: .bold, design: .rounded))
+        .font(.system(size: size, weight: .bold, design: .rounded))
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity)
@@ -55,7 +62,7 @@ struct PageTitle: View {
 
     /// Первая строка — столько слов, сколько помещается в `firstWidth` (или до явного переноса);
     /// остальное — второй частью.
-    static func split(_ title: String, firstWidth: CGFloat) -> (String, String) {
+    static func split(_ title: String, firstWidth: CGFloat, font: UIFont = PageTitle.font) -> (String, String) {
         if let nl = title.firstIndex(of: "\n") {
             return (String(title[..<nl]), String(title[title.index(after: nl)...]))
         }
@@ -74,33 +81,6 @@ struct PageTitle: View {
 extension UIFont {
     var rounded: UIFont {
         fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: pointSize) } ?? self
-    }
-}
-
-/// Короткий заголовок в панели, когда большой ушёл под неё (как у стандартного большого
-/// заголовка iOS), и плотнее, чем у системы, затухание содержимого под панелью.
-struct CollapsingTitle: ViewModifier {
-    let title: String
-    /// Когда большой заголовок почти весь ушёл под панель, показываем короткий.
-    let threshold: CGFloat
-    /// Короткий заголовок уменьшается, пока не влезет в строку; это — наименьший масштаб.
-    var minScale: CGFloat = 0.5
-    @State private var away = false
-
-    func body(content: Content) -> some View {
-        content
-            .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top > threshold } action: { _, value in
-                withAnimation(.easeInOut(duration: 0.2)) { away = value }
-            }
-            .overlay(alignment: .top) { TopFade() }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(title)
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .lineLimit(1).minimumScaleFactor(minScale)
-                        .opacity(away ? 1 : 0)
-                }
-            }
     }
 }
 
@@ -123,9 +103,10 @@ struct TopFade: View {
 }
 
 extension View {
-    /// `bigTitle` — текст большого заголовка (по нему — сколько в нём строк).
-    func collapsingTitle(_ title: String, bigTitle: String? = nil, minScale: CGFloat = 0.5) -> some View {
-        modifier(CollapsingTitle(title: title, threshold: PageTitle.height(bigTitle ?? title) * 0.75, minScale: minScale))
+    /// Вложенная страница: большой заголовок поверх содержимого (на месте невидимого заголовка
+    /// с координатами `rowY`); при прокрутке он плавно уменьшается и встаёт в панель одной строкой.
+    func subpageTitle(_ title: String, rowY: CGFloat?, hidden: Bool = false) -> some View {
+        modifier(SubpageTitle(title: title, rowY: rowY, hidden: hidden))
     }
 
     /// Страница-список с большим заголовком: заголовок рисуется поверх списка (на месте пустой
@@ -174,6 +155,89 @@ struct FloatingPageTitle: ViewModifier {
                                 }
                             }
                             .offset(y: -top)
+                    }
+                    .allowsHitTesting(false)
+                }
+            }
+    }
+}
+
+/// Большой заголовок вложенной страницы, превращающийся при прокрутке в заголовок панели.
+/// Всегда по центру экрана. Если он в одну строку и помещается между кнопкой «назад» и
+/// таким же полем справа — размер не меняется, он просто встаёт в панель. Иначе по ходу
+/// прокрутки шрифт плавно уменьшается до размера, при котором название влезает в одну строку
+/// (размер считается заранее, по названию); многострочный заголовок по пути перетекает в
+/// однострочный.
+struct SubpageTitle: ViewModifier {
+    let title: String
+    /// Верх невидимого заголовка в содержимом (nil — ещё не известен).
+    let rowY: CGFloat?
+    /// Пока название редактируется — заголовок не рисуем (видно поле ввода).
+    let hidden: Bool
+    @State private var offset: CGFloat = 0
+    @State private var offsetAtRowY: CGFloat = 0
+    /// Прокрутка от исходного положения (без отскока при «потянуть вниз»).
+    @State private var scrolled: CGFloat = 0
+
+    private static let bigSize: CGFloat = 34
+    /// Ширина строки в панели: экран без кнопки «назад» и такого же поля справа.
+    private static var barWidth: CGFloat { UIScreen.main.bounds.width - 2 * (16 + PageTitle.sideInset) }
+
+    private static func font(_ size: CGFloat) -> UIFont { UIFont.systemFont(ofSize: size, weight: .bold).rounded }
+
+    /// Размер, при котором название влезает в панель одной строкой (не больше большого).
+    /// Подбирается по шагам: на мелком кегле шрифт относительно шире, линейно не пересчитать.
+    private var dockedSize: CGFloat {
+        var size = Self.bigSize
+        while size > 12, PageTitle.split(title, firstWidth: Self.barWidth, font: Self.font(size)).1.isEmpty == false
+                || (title as NSString).size(withAttributes: [.font: Self.font(size)]).width > Self.barWidth - 4 {
+            size -= 0.5
+        }
+        return size
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .coordinateSpace(name: PageTitleRow.space)
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, value in offset = value }
+            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, value in scrolled = max(0, value) }
+            .onChange(of: rowY) { offsetAtRowY = offset }
+            .overlay(alignment: .top) { TopFade() }
+            .overlay(alignment: .top) {
+                if let rowY, !hidden {
+                    GeometryReader { g in
+                        let top = g.safeAreaInsets.top
+                        // Всё — в координатах экрана (слой поднят на высоту панели).
+                        let y = rowY - (offset - offsetAtRowY)
+                        // Где был заголовок до прокрутки.
+                        let start = y + scrolled
+                        let docked = dockedSize
+                        let dockedLine = Self.font(docked).lineHeight
+                        // Центр строки в панели — на уровне кнопки «назад».
+                        let dockTop = top - 32 - dockedLine / 2
+                        // Уменьшается на пути до панели и ещё на высоту самого заголовка: дойдя до
+                        // панели, он встаёт в неё и дальше уменьшается уже там.
+                        let travel = max(1, start - dockTop + PageTitle.height(title) * 0.8)
+                        let p = min(1, max(0, (start - y) / travel))
+                        let shownTop = max(y, dockTop)
+                        // Шрифт уменьшается плавно; строки сами перестраиваются (3 → 2 → 1).
+                        let size = Self.bigSize + (docked - Self.bigSize) * p
+                        // Под вставшим в панель заголовком содержимое закрыто фоном страницы
+                        // (плотнее по мере того, как заголовок встаёт в панель).
+                        let barBottom = dockTop + dockedLine + 10
+                        LinearGradient(stops: [
+                            .init(color: Color(.systemGroupedBackground).opacity(0.97), location: 0),
+                            .init(color: Color(.systemGroupedBackground).opacity(0.9), location: max(0, (barBottom - 14) / (barBottom + 14))),
+                            .init(color: Color(.systemGroupedBackground).opacity(0), location: 1),
+                        ], startPoint: .top, endPoint: .bottom)
+                        .frame(width: g.size.width, height: barBottom + 14)
+                        .opacity(p)
+                        .offset(y: -top)
+                        PageTitle(title, sideInset: PageTitle.sideInset, size: size)
+                            .padding(.horizontal, 16)
+                        .offset(y: shownTop)
+                        .frame(width: g.size.width, height: g.size.height + top, alignment: .top)
+                        .offset(y: -top)
                     }
                     .allowsHitTesting(false)
                 }
@@ -287,7 +351,7 @@ struct MainView: View {
                     // Внизу главной — версия со сборкой и подпись.
                     VStack(spacing: 2) {
                         Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") (\(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""))")
-                        Text("Vibecoded by chumbulev")
+                        Text("Vibecoded by ismylvdya (a.k.a. chumbulev)")
                     }
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -628,8 +692,7 @@ struct ArchiveView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .listPageTitle(trash ? "Trash" : "Archive", sideInset: PageTitle.sideInset, rowY: titleY)
-        .collapsingTitle(trash ? "Trash" : "Archive")
+        .subpageTitle(trash ? "Trash" : "Archive", rowY: titleY)
         .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
         .refreshable { await store.forceRefresh() }
     }
@@ -948,6 +1011,8 @@ struct HabitDetailView: View {
     @FocusState private var titleFocused: Bool
     @State private var noteDay: Date?
     @State private var noteText = ""
+    /// Верх заголовка на странице — для `subpageTitle`.
+    @State private var titleY: CGFloat?
     @State private var reasonFor: (UUID, Date)?
     @State private var reasonText = ""
     /// Закрыли плашку долгого пропуска — перерисовать страницу.
@@ -982,10 +1047,13 @@ struct HabitDetailView: View {
                                 .onAppear { titleFocused = true }
                                 .padding(.horizontal, PageTitle.sideInset)
                         } else {
-                            // Нажатие — редактирование.
+                            // Нажатие — редактирование. Сам заголовок рисует `subpageTitle` поверх
+                            // страницы; здесь он невидим, держит место и принимает нажатие.
                             PageTitle(habit.title, sideInset: PageTitle.sideInset)
+                                .opacity(0.001)
                                 .contentShape(Rectangle())
                                 .onTapGesture { editingTitle = true }
+                                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(PageTitleRow.space)).minY } action: { titleY = $0 }
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -1093,7 +1161,7 @@ struct HabitDetailView: View {
             .refreshable { await store.forceRefresh() }
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { pageBottom = $0 }
             .navigationBarTitleDisplayMode(.inline)
-            .collapsingTitle(habit.title)
+            .subpageTitle(habit.title, rowY: titleY, hidden: editingTitle)
             .alert(noteDay.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Note",
                    isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
                 TextField("Note", text: $noteText)
@@ -2006,7 +2074,7 @@ struct HabitSettingsView: View {
                 HStack {
                     Button { picking = .csv; pickerShown = true } label: { Label("Import CSV…", systemImage: "square.and.arrow.down") }
                     Spacer()
-                    InfoButton(text: "Reads:\n• this app's CSV: pick both habits.csv and habit_days.csv (or only habit_days.csv for habits you already have); the older single-file CSV (habit_id, habit_name, date, status, note) too;\n• Loop Habit Tracker: Checkmarks.csv (Date, then a column per habit; YES_MANUAL counts as done, YES_AUTO / NO / SKIP / UNKNOWN as not marked) or one habit's Checkmarks.csv (Date, Value, Notes — the habit is named after its folder);\n• any CSV with a date column (date, day…) and a habit name column (habit, name, task…), optionally a status (done / yes / true / 1, partial, over, twice; no / false / 0 = not marked) and a note.\n\nHabits are matched by ID, then by name; others are created. Days already marked and existing notes are kept. Dates: yyyy-MM-dd, dd.MM.yyyy, MM/dd/yyyy and similar.", tint: .accentColor)
+                    InfoButton(text: "Reads:\n• this app's CSV: pick both habits-names.csv and habits-fact-table.csv (or only habits-fact-table.csv for habits you already have); the older single-file CSV (habit_id, habit_name, date, status, note) too;\n• Loop Habit Tracker: Checkmarks.csv (Date, then a column per habit; YES_MANUAL counts as done, YES_AUTO / NO / SKIP / UNKNOWN as not marked) or one habit's Checkmarks.csv (Date, Value, Notes — the habit is named after its folder);\n• any CSV with a date column (date, day…) and a habit name column (habit, name, task…), optionally a status (done / yes / true / 1, partial, over, twice; no / false / 0 = not marked) and a note.\n\nHabits are matched by ID, then by name; others are created. Days already marked and existing notes are kept. Dates: yyyy-MM-dd, dd.MM.yyyy, MM/dd/yyyy and similar.", tint: .accentColor)
                 }
             } header: {
                 RoundedHeader("Export & Import")
@@ -2035,19 +2103,19 @@ struct HabitSettingsView: View {
                             pendingRestore = nil
                         }
                     } message: {
-                        Text("The current habits are kept in habits-previous.json in the backup folders.")
+                        Text("The current habits are kept in backups/habits-before-restore-… in the backup folders.")
                     }
             } header: {
                 HStack {
                     RoundedHeader("Backup")
                     Spacer()
-                    InfoButton(text: "Where: always in Files → On My iPhone → Habits on Reminders, and also in your folder if you choose one (for example a folder in iCloud Drive).\n\nFiles in each folder:\n• habits.json — the current database.\n• habits-previous.json — the database before the last change.\n• habits-daily.json — the database before the first change of the day (an independent copy of the previous day).\n• habits-before-….json — a copy saved before a suspiciously big change (10+ marked days or 2+ habits gone, or 2+ habits lost all linked reminders at once), before a merge and before a restore. Never overwritten. You also get an alert and a notification about a big change.\n• habits.csv and habit_days.csv — all habits as CSV.\n• settings.json — all settings.\n\nDatabase format (JSON): a list of habits, each with its id, name, color, linked reminders and settings, and the marked days as dates “yyyy-MM-dd”: completions (all marked days), partialDays, overDays and twiceDays (which of them are partially done, overdone, twice), removedDays (unmarked by hand), notes (date → text).\n\nCSV format: habits.csv — habit_id, habit_name; habit_days.csv — habit_id, date (yyyy-MM-dd), status (done, partial, over, twice or none), note, skip_reason.\n\nRestore from Backup… replaces all habits with a chosen habits*.json; the current ones go to habits-previous.json first.")
+                    InfoButton(text: "Where: always in Files → On My iPhone → Habits on Reminders, and also in your folder if you choose one (for example a folder in iCloud Drive).\n\nIn each folder — the current state:\n• habits-settings.json — each habit's settings (name, color, rules, linked reminders…), no days;\n• habits-fact-table.csv — the days: habit_id, date, status (done, partial, over, twice, none, or removed — unmarked by hand), note, skip_reason;\n• habits-names.csv — habit_id and habit_name;\n• app-settings.json — the app's settings and the skip reasons list.\n\nbackups/ — earlier states, each a folder with the same files:\n• previous — before the last change;\n• daily — before the first change of the day;\n• habits-before-… — before a suspiciously big change (10+ marked days or 2+ habits gone, or 2+ habits lost all linked reminders at once), a merge, a delete or a restore. Never overwritten. You also get an alert and a notification about a big change.\n• old-format — files from older versions of the app.\n\nRestore from Backup… — pick habits-settings.json and habits-fact-table.csv from one folder (app-settings.json too, to bring back the skip reasons' kinds), or an older habits*.json. All habits are replaced; the current ones are saved to backups first.")
                 }
             }
         }
         .fileImporter(isPresented: $pickerShown,
-                      allowedContentTypes: picking == .folder ? [.folder] : picking == .backup ? [.json] : [.commaSeparatedText, .plainText, .text],
-                      allowsMultipleSelection: picking == .csv) { result in
+                      allowedContentTypes: picking == .folder ? [.folder] : picking == .backup ? [.json, .commaSeparatedText] : [.commaSeparatedText, .plainText, .text],
+                      allowsMultipleSelection: picking != .folder) { result in
             let mode = picking
             guard case .success(let urls) = result, let url = urls.first else {
                 if case .failure(let error) = result { Toast.show("Couldn't open: \(error.localizedDescription)", error: true) }
@@ -2061,7 +2129,7 @@ struct HabitSettingsView: View {
                 backupFolder = FilesBackup.chosenFolder?.lastPathComponent
                 if let backupFolder { Toast.show("Backing up to “\(backupFolder)”") }
             case .backup:
-                if let data = try? Data(contentsOf: url), let db = FilesBackup.decode(data) ?? (try? JSONDecoder().decode(HabitDB.self, from: data)) {
+                if let db = FilesBackup.restoreDB(from: urls) {
                     pendingRestore = db
                 } else {
                     Toast.show("This file isn't a habits backup", error: true)
@@ -2082,8 +2150,7 @@ struct HabitSettingsView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .listPageTitle("Habits on Reminders Settings", sideInset: PageTitle.sideInset, rowY: titleY)
-        .collapsingTitle("Habits on Reminders Settings")
+        .subpageTitle("Habits on Reminders Settings", rowY: titleY)
         .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
         .refreshable { await store.forceRefresh() }
         .onDisappear { WidgetCenter.shared.reloadAllTimelines() }
@@ -2218,9 +2285,7 @@ struct CalendarSettingsView: View {
     @AppStorage(CalendarSettings.Key.bellOpacityDark, store: AppGroup.defaults) private var bellDark = 0.7
     @AppStorage(CalendarSettings.Key.bellHexLight, store: AppGroup.defaults) private var bellHexLight = ""
     @AppStorage(CalendarSettings.Key.bellHexDark, store: AppGroup.defaults) private var bellHexDark = ""
-    @AppStorage(CalendarSettings.Key.bellSize, store: AppGroup.defaults) private var bellSize = 9.0
     @AppStorage(CalendarSettings.Key.bellInsetTop, store: AppGroup.defaults) private var bellInsetTop = 3.0
-    @AppStorage(CalendarSettings.Key.bellInsetRight, store: AppGroup.defaults) private var bellInsetRight = 3.0
     @AppStorage(CalendarSettings.Key.defaultDayStart, store: AppGroup.defaults) private var dayStart = 6
     @AppStorage(CalendarSettings.Key.defaultDayEnd, store: AppGroup.defaults) private var dayEnd = 24
 
@@ -2269,18 +2334,15 @@ struct CalendarSettingsView: View {
                     Text("Alert bell opacity, dark: \(Int((bellDark * 100).rounded()))%")
                     Slider(value: $bellDark, in: 0...1)
                 }
-                ValueStepper("Alert bell size:", shown: "\(Int(bellSize))", after: "pt", value: $bellSize, in: 5...16, step: 1)
                 ValueStepper("Bell from top:", shown: "\(Int(bellInsetTop))", after: "pt", value: $bellInsetTop, in: 0...10, step: 1)
-                ValueStepper("Bell from right:", shown: "\(Int(bellInsetRight))", after: "pt", value: $bellInsetRight, in: 0...10, step: 1)
             } header: {
                 RoundedHeader("Widget")
             } footer: {
-                Text("Default Day Start and End apply to calendar widgets whose Day start/end is set to “Default”. An empty bell color means the event's calendar color. On events too short for the bell it gets smaller and stays centered between the top and bottom edges.")
+                Text("Default Day Start and End apply to calendar widgets whose Day start/end is set to “Default”. An empty bell color means the event's calendar color. The bell sits in the corner with the same gap to the top and right (Bell from top).")
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .listPageTitle("Calendar Enhancer Settings", sideInset: PageTitle.sideInset, rowY: titleY)
-        .collapsingTitle("Calendar Enhancer Settings")
+        .subpageTitle("Calendar Enhancer Settings", rowY: titleY)
         .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
         .refreshable { await store.forceRefresh() }
         .onDisappear { WidgetCenter.shared.reloadAllTimelines() }

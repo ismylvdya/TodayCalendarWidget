@@ -43,6 +43,7 @@ enum AlertScheduler {
         let all = alerts(now: now)
         let future = all.filter { $0.fireDate > now }
         await notifyMovedIntoPast(all, now: now)
+        await notifyAddedInPast(all, now: now)
         // Запоминаем ещё не сработавшие alert — по ним видно, что событие потом перенесли раньше.
         AppGroup.defaults.set(Dictionary(future.map { ($0.key, $0.fireDate.timeIntervalSinceReferenceDate) }, uniquingKeysWith: min),
                               forKey: pendingKey)
@@ -113,7 +114,13 @@ enum AlertScheduler {
         let request: UNNotificationRequest
         /// Событие и номер alert — не меняются при переносе события.
         let key: String
+        /// Начало события.
+        let start: Date
     }
+
+    /// Все alert, известные с прошлой синхронизации (и прошедшие) — по ним видно, что alert
+    /// добавили к событию уже после его времени.
+    private static let knownKey = "knownAlertKeys"
 
     /// Ещё не сработавшие alert с прошлой синхронизации: «событие|номер» → время.
     private static let pendingKey = "pendingAlertFires"
@@ -134,6 +141,22 @@ enum AlertScheduler {
         }
     }
 
+    /// К сегодняшнему уже начавшемуся событию добавили alert, время которого уже прошло, —
+    /// уведомления не было: присылаем его сразу. Первая синхронизация только запоминает alert.
+    private static func notifyAddedInPast(_ alerts: [Alert], now: Date) async {
+        let known = (AppGroup.defaults.array(forKey: knownKey) as? [String]).map(Set.init)
+        AppGroup.defaults.set(alerts.map(\.key), forKey: knownKey)
+        guard CalendarSettings.notifyMovedIntoPast, let known else { return }
+        let center = UNUserNotificationCenter.current()
+        let delivered = Set(await center.deliveredNotifications().map(\.request.identifier))
+        for alert in alerts where alert.fireDate <= now && alert.start <= now && Calendar.current.isDate(alert.start, inSameDayAs: now)
+            && !known.contains(alert.key) {
+            let id = alert.request.identifier + "|added"
+            guard !delivered.contains(id), !delivered.contains(alert.request.identifier + "|moved") else { continue }
+            try? await center.add(UNNotificationRequest(identifier: id, content: alert.request.content, trigger: nil))
+        }
+    }
+
     /// Alert событий от суток назад до `alertDaysAhead` вперёд (и прошедшие — для переносов).
     private static func alerts(now: Date) -> [Alert] {
         let store = EKEventStore()
@@ -149,7 +172,7 @@ enum AlertScheduler {
                 let fire = alarm.absoluteDate ?? event.startDate.addingTimeInterval(alarm.relativeOffset)
                 guard fire > start, fire < end else { continue }
                 alerts.append(Alert(fireDate: fire, request: request(for: event, alarmIndex: index, fire: fire),
-                                    key: "\(event.eventIdentifier ?? "")|\(index)"))
+                                    key: "\(event.eventIdentifier ?? "")|\(index)", start: event.startDate))
             }
         }
         return alerts.sorted { $0.fireDate < $1.fireDate }

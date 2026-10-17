@@ -22,13 +22,16 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.chumbulev.TodayCalendarWidget
+        # Свой постоянный сертификат (в связке login): подпись не меняется между сборками,
+        # и macOS не спрашивает заново доступ к календарю. Нет сертификата — "-" (ad-hoc).
+        CODE_SIGN_IDENTITY: "Calendar Enhancer Signing"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        PRODUCT_NAME: "Calendar Widget"
+        PRODUCT_NAME: "Calendar Enhancer"
         PRODUCT_MODULE_NAME: CalendarWidget
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: "Calendar Widget"
+        CFBundleDisplayName: "Calendar Enhancer"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: true
@@ -50,10 +53,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.chumbulev.TodayCalendarWidget.Widget
+        CODE_SIGN_IDENTITY: "Calendar Enhancer Signing"
     info:
       path: Widget/Info.plist
       properties:
-        CFBundleDisplayName: "Calendar Widget"
+        CFBundleDisplayName: "Calendar Enhancer"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSCalendarsFullAccessUsageDescription: Виджет показывает события сегодняшнего дня.
@@ -80,7 +84,7 @@ targets:
     info:
       path: iOSApp/Info.plist
       properties:
-        CFBundleDisplayName: "Habits on Reminders"
+        CFBundleDisplayName: "Habits"
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundleName: "Habits on Reminders"

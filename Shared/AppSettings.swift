@@ -8,7 +8,7 @@ import UIKit
 #if os(iOS)
 let appName = "Habits on Reminders & Calendar Enhancer"
 #else
-let appName = "Calendar Widget"
+let appName = "Calendar Enhancer"
 #endif
 
 /// Общее хранилище приложения и виджета.
@@ -57,7 +57,6 @@ enum CalendarSettings {
         static let bellOpacityDark = "bellOpacityDark"
         static let bellHexLight = "bellHexLight"
         static let bellHexDark = "bellHexDark"
-        static let bellSize = "bellSize"
         static let bellInsetTop = "bellInsetTop"
         static let bellInsetRight = "bellInsetRight"
         static let defaultDayStart = "defaultDayStart"
@@ -102,8 +101,7 @@ enum CalendarSettings {
         let key = dark ? Key.bellOpacityDark : Key.bellOpacityLight
         return d.object(forKey: key) == nil ? (dark ? 0.7 : 0.5) : d.double(forKey: key)
     }
-    /// Размер колокольчика и его отступы от верхнего и правого края плашки события, pt.
-    static var bellSize: Double { d.object(forKey: Key.bellSize) == nil ? 9 : d.double(forKey: Key.bellSize) }
+    /// Отступы колокольчика от верхнего и правого края плашки события, pt.
     static var bellInsetTop: Double { d.object(forKey: Key.bellInsetTop) == nil ? 3 : d.double(forKey: Key.bellInsetTop) }
     static var bellInsetRight: Double { d.object(forKey: Key.bellInsetRight) == nil ? 3 : d.double(forKey: Key.bellInsetRight) }
     /// Свой цвет колокольчика (светлая / тёмная тема); nil — цвет календаря.

@@ -6,7 +6,7 @@
   "iconURL": "https://github.com/ismylvdya.png",
   "apps": [
     {
-      "name": "Habits on Reminders",
+      "name": "Habits",
       "bundleIdentifier": "com.chumbulev.TripleToday",
       "developerName": "ismylvdya",
       "subtitle": "Habits on Reminders & Calendar Enhancer",

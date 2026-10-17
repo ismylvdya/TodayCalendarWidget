@@ -53,7 +53,7 @@ struct Habit: Codable, Identifiable, Hashable {
     /// Причины несделанных дней: день → ID причины из общего списка (`HabitDB.reasons`).
     var skipReasons: [String: UUID] = [:]
     /// Спрашивать причину несделанного дня: пункт меню, знаки вопроса, долгие пропуски.
-    var asksWhyNotDone = true
+    var asksWhyNotDone = false
     /// Заметка к самой привычке и показывать ли её поле (текст сохраняется и при скрытом поле).
     var habitNote = ""
     var showsNote = true
@@ -351,8 +351,8 @@ struct SeededRandom {
 // MARK: - CSV
 
 enum HabitCSV {
-    static let habitsFile = "habits.csv"
-    static let daysFile = "habit_days.csv"
+    static let habitsFile = "habits-names.csv"
+    static let daysFile = "habits-fact-table.csv"
 
     private static func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
 
@@ -364,12 +364,16 @@ enum HabitCSV {
     /// Таблица дней (факты): «habit_id,date,status,note,skip_reason» — по строке на каждый
     /// отмеченный день, день с заметкой или с причиной пропуска; status: done, partial, over,
     /// twice или none (не отмечен).
-    static func makeDays(_ habits: [Habit], reasons: [SkipReason]) -> String {
+    /// `includeRemoved` (для бэкапа) — ещё и дни, снятые вручную (status `removed`: синхронизация
+    /// с Reminders их не возвращает).
+    static func makeDays(_ habits: [Habit], reasons: [SkipReason], includeRemoved: Bool = false) -> String {
         let reasonTitles = Dictionary(reasons.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
         var rows = ["habit_id,date,status,note,skip_reason"]
         for habit in habits {
-            for day in habit.completions.union(habit.notes.keys).union(habit.skipReasons.keys).sorted() {
-                let status = !habit.completions.contains(day) ? "none"
+            var days = habit.completions.union(habit.notes.keys).union(habit.skipReasons.keys)
+            if includeRemoved { days.formUnion(habit.removedDays) }
+            for day in days.sorted() {
+                let status = !habit.completions.contains(day) ? (includeRemoved && habit.removedDays.contains(day) ? "removed" : "none")
                     : habit.twiceDays.contains(day) ? "twice"
                     : habit.overDays.contains(day) ? "over" : habit.partialDays.contains(day) ? "partial" : "done"
                 let reason = habit.skipReasons[day].flatMap { reasonTitles[$0] } ?? ""
@@ -388,7 +392,7 @@ enum HabitCSV {
         return [habitsURL, daysURL]
     }
 
-    static let formatInfo = "Two CSV tables:\n• habits.csv — one row per habit: habit_id (the habit's permanent ID, kept after relinking reminders), habit_name;\n• habit_days.csv — one row per marked day, day with a note or with a skip reason: habit_id, date (yyyy-MM-dd), status (done, partial, over, twice, or none when not marked), note, skip_reason.\n\nJoin them on habit_id."
+    static let formatInfo = "Two CSV tables:\n• habits-names.csv — one row per habit: habit_id (the habit's permanent ID, kept after relinking reminders), habit_name;\n• habits-fact-table.csv — one row per marked day, day with a note or with a skip reason: habit_id, date (yyyy-MM-dd), status (done, partial, over, twice, or none when not marked), note, skip_reason.\n\nJoin them on habit_id."
 
     // MARK: Импорт
 
@@ -531,7 +535,7 @@ enum HabitCSV {
     }
 
     /// Строки CSV с учётом кавычек и переносов внутри них; разделитель — запятая или точка с запятой.
-    private static func csvRows(_ text: String) -> [[String]] {
+    static func csvRows(_ text: String) -> [[String]] {
         let firstLine = text.prefix { $0 != "\n" }
         let separator: Character = firstLine.filter { $0 == ";" }.count > firstLine.filter { $0 == "," }.count ? ";" : ","
         var rows: [[String]] = [], row: [String] = [], field = "", quoted = false

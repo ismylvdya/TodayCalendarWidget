@@ -27,13 +27,25 @@ struct DayEntry: TimelineEntry {
 }
 
 struct Provider: AppIntentTimelineProvider {
+    /// Конец дня по умолчанию у этого вида виджета (Half Day — 15:00); nil — из настроек приложения.
+    var defaultDayEnd: Int?
+
+    /// Настройки виджета; «Default» у конца дня — свой для этого вида виджета, если задан.
+    private func dayConfig(_ configuration: DayConfigurationIntent) -> DayConfig {
+        var c = configuration.dayConfig
+        if let defaultDayEnd, configuration.dayEndHour == .appDefault { c.dayEnd = defaultDayEnd }
+        return c
+    }
+
     func placeholder(in context: Context) -> DayEntry {
-        DayEntry(date: Date(), events: SampleData.events, hasAccess: true)
+        var config = DayConfig()
+        if let defaultDayEnd { config.dayEnd = defaultDayEnd }
+        return DayEntry(date: Date(), events: SampleData.events, hasAccess: true, config: config)
     }
 
     func snapshot(for configuration: DayConfigurationIntent, in context: Context) async -> DayEntry {
         let now = Date()
-        let config = configuration.dayConfig
+        let config = dayConfig(configuration)
         if CalendarData.hasAccess {
             let events = Self.events(config: config, now: now)
             return DayEntry(date: now, events: events, hasAccess: true, config: config, fetchedAt: now)
@@ -46,7 +58,7 @@ struct Provider: AppIntentTimelineProvider {
     func timeline(for configuration: DayConfigurationIntent, in context: Context) async -> Timeline<DayEntry> {
         let now = Date()
         let cal = Calendar.current
-        let config = configuration.dayConfig
+        let config = dayConfig(configuration)
         let hasAccess = CalendarData.hasAccess
         let events = hasAccess ? Self.events(config: config, now: now) : []
         #if os(iOS)
@@ -144,10 +156,12 @@ enum Layout {
 
 struct TodayWidgetView: View {
     let entry: DayEntry
+    /// Колонок явно (Half Day — одна); nil — по размеру: Large — 2, Extra Large — 3.
+    var columns: Int?
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        DayView(entry: entry, columnCount: family == .systemLarge ? 2 : 3)
+        DayView(entry: entry, columnCount: columns ?? (family == .systemLarge ? 2 : 3))
     }
 }
 
@@ -213,11 +227,17 @@ private func eventTint(_ ev: DayEvent, _ mode: WidgetRenderingMode) -> Color {
 
 /// Цвет текста события: на iPhone в полноцветной тёмной теме — цвет календаря (как полоска),
 /// в остальных случаях — обычный.
+/// Цвет названия события, как в системном Calendar: в тёмной теме — цвет календаря,
+/// в светлой — он же, но заметно темнее.
 private func eventTextStyle(_ color: Color, _ mode: WidgetRenderingMode, _ scheme: ColorScheme) -> AnyShapeStyle {
-    #if os(iOS)
-    if mode == .fullColor && scheme == .dark { return AnyShapeStyle(color) }
-    #endif
-    return AnyShapeStyle(.primary)
+    guard mode == .fullColor else { return AnyShapeStyle(.primary) }
+    return AnyShapeStyle(scheme == .dark ? color : darkened(color))
+}
+
+/// Цвет календаря, смешанный с чёрным (для текста в светлой теме).
+func darkened(_ color: Color) -> Color {
+    if #available(iOS 18, macOS 15, *) { return color.mix(with: .black, by: 0.45) }
+    return color
 }
 
 private func isInverted(_ ev: DayEvent, _ config: DayConfig, _ mode: WidgetRenderingMode) -> Bool {
@@ -378,7 +398,9 @@ struct ColumnView: View {
                     let (y0, h) = vertical(p)
                     EventBlock(event: p.event, height: h, dimmed: entry.config.isDimmed(p.event, now: entry.date),
                                inverted: isInverted(p.event, entry.config, mode),
-                               continuesBefore: p.continuesBefore, continuesAfter: p.continuesAfter, mode: mode)
+                               continuesBefore: p.continuesBefore, continuesAfter: p.continuesAfter, mode: mode,
+                               // Высота самой короткой (получасовой) плашки — по ней размер колокольчика.
+                               shortest: height * 30 * 60 / CGFloat(span) - lineHeight - 2 * px)
                         .frame(width: laneWidth - 2, height: h)
                         .offset(x: gutter + CGFloat(p.lane) * laneWidth, y: y0)
                 }
@@ -453,11 +475,6 @@ struct SyncLabel: View {
     }
 }
 
-#if os(iOS)
-private let isPhone = true
-#else
-private let isPhone = false
-#endif
 
 struct EventBlock: View {
     let event: DayEvent
@@ -467,7 +484,10 @@ struct EventBlock: View {
     let continuesBefore: Bool
     let continuesAfter: Bool
     let mode: WidgetRenderingMode
+    /// Высота получасовой плашки в этом виджете.
+    var shortest: CGFloat = 20
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.widgetFamily) private var family
 
     var body: some View {
         let color = eventTint(event, mode)
@@ -479,11 +499,19 @@ struct EventBlock: View {
         let pad: CGFloat = height >= 19 ? 3 : 1
         let fontSize = min(11, max(4, (height - 2 * pad) / 1.2))
         let stripeInset = min(3, height / 4)
-        // Колокольчик — в правом верхнем углу плашки, с отступами и размером из настроек. У короткой
-        // плашки он меньше и по центру по высоте — на равном расстоянии от верха, низа и правого края.
-        let bellTop = CGFloat(CalendarSettings.bellInsetTop), bellRight = CGFloat(CalendarSettings.bellInsetRight)
-        let bellSize = max(4, min(CGFloat(CalendarSettings.bellSize), height - 2 * min(bellTop, height / 4)))
-        let bellY = min(bellTop, max(0, (height - bellSize) / 2))
+        // Колокольчик — в правом верхнем углу. Размер — такой, чтобы в самой короткой (получасовой)
+        // плашке до верха, низа и правого края было одинаково (отступ — из настроек); у длинных
+        // плашек он того же размера на том же месте.
+        let bellTop = CGFloat(CalendarSettings.bellInsetTop)
+        let (bellSize, bellY, bellRight): (CGFloat, CGFloat, CGFloat) = {
+            // По высоте получасовой плашки: зазор сверху, снизу и справа одинаковый.
+            // Double — впритык с отступом, Triple (плашки крупнее) — в полтора раза меньше.
+            let fit = min(height, shortest)
+            let full = max(4, fit - 2 * min(bellTop, fit / 4))
+            let size = family == .systemExtraLarge ? max(4, full / 1.5) : full
+            let y = max(0, (fit - size) / 2)
+            return (size, y, y)
+        }()
         let titleTop: CGFloat = height > 16 ? 2 : 0
         let lineHeight = fontSize * 1.2
         Text(event.title)
@@ -523,8 +551,9 @@ struct EventBlock: View {
                     // Цвет календаря, но прозрачнее (насколько — в настройках, отдельно для
                     // светлой и тёмной темы); при инверсии выбивается целиком.
                     .foregroundStyle(inverted ? AnyShapeStyle(HierarchicalShapeStyle.primary)
-                                     : mode == .fullColor && isPhone
-                                        ? AnyShapeStyle((CalendarSettings.bellColor(dark: scheme == .dark) ?? color)
+                                     : mode == .fullColor
+                                        // Без своего цвета — как название: в светлой теме темнее.
+                                        ? AnyShapeStyle((CalendarSettings.bellColor(dark: scheme == .dark) ?? (scheme == .dark ? color : darkened(color)))
                                             .opacity(CalendarSettings.bellOpacity(dark: scheme == .dark)))
                                      : AnyShapeStyle(.secondary))
                     // На переходе между колонками растворяется вместе с плашкой.
@@ -543,7 +572,8 @@ struct EventBlock: View {
                 .mask(FadeMask(top: continuesBefore, bottom: continuesAfter))
                 .widgetAccentable()
         }
-        .eventBackground(shape, color: color, opacity: 0.22, inverted: inverted,
+        // В тёмной теме заливка плотнее — как у системного Calendar.
+        .eventBackground(shape, color: color, opacity: scheme == .dark ? 0.34 : 0.22, inverted: inverted,
                          fade: (continuesBefore, continuesAfter))
         .clipShape(shape)
         .opacity(dimmed ? 0.55 : 1)
@@ -553,8 +583,9 @@ struct EventBlock: View {
 enum Theme {
     static let cursor = Color(red: 0xE9 / 255, green: 0x53 / 255, blue: 0x4C / 255)
     /// Вертикальный градиент тёмного фона, как у системного виджета Calendar.
-    static let darkBackgroundTop = Color(red: 0x33 / 255, green: 0x33 / 255, blue: 0x35 / 255)
-    static let darkBackgroundBottom = Color(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1E / 255)
+    /// Темнее прежнего — как фон системных виджетов в тёмной теме.
+    static let darkBackgroundTop = Color(red: 0x24 / 255, green: 0x24 / 255, blue: 0x26 / 255)
+    static let darkBackgroundBottom = Color(red: 0x16 / 255, green: 0x16 / 255, blue: 0x18 / 255)
     static let darkLabel = Color(white: 0xB0 / 255)
     static let darkGrid = Color(white: 0x54 / 255)
 }
@@ -580,6 +611,7 @@ struct TodayWidgets: WidgetBundle {
         DoubleTodayWidget()
         #if os(macOS)
         TripleTodayWidget()
+        HalfDayWidget()
         #else
         HabitWidget()
         HabitGoalWidget()
@@ -606,9 +638,19 @@ struct TripleTodayWidget: Widget {
     }
 }
 
-private func dayWidgetConfiguration(kind: String, name: LocalizedStringResource, family: WidgetFamily) -> some WidgetConfiguration {
-    AppIntentConfiguration(kind: kind, intent: DayConfigurationIntent.self, provider: Provider()) { entry in
-        TodayWidgetView(entry: entry)
+/// Large (только macOS): одна колонка на всю ширину. Промежуток дня задаётся в настройках
+/// каждого виджета (Day start / Day end; по умолчанию до 15:00) — два виджета друг под другом
+/// дают вертикальный день.
+struct HalfDayWidget: Widget {
+    var body: some WidgetConfiguration {
+        dayWidgetConfiguration(kind: "HalfDay", name: "Half Day", family: .systemLarge, columns: 1, defaultDayEnd: 15)
+    }
+}
+
+private func dayWidgetConfiguration(kind: String, name: LocalizedStringResource, family: WidgetFamily,
+                                    columns: Int? = nil, defaultDayEnd: Int? = nil) -> some WidgetConfiguration {
+    AppIntentConfiguration(kind: kind, intent: DayConfigurationIntent.self, provider: Provider(defaultDayEnd: defaultDayEnd)) { entry in
+        TodayWidgetView(entry: entry, columns: columns)
             .modifier(OpensCalendarOnTap())
             .widgetURL(tapURL(for: entry.date))
             .containerBackground(for: .widget) { WidgetBackground() }
