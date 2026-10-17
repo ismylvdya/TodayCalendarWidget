@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.3.3",
+          "buildVersion": "12",
+          "date": "2026-10-17",
+          "localizedDescription": "Banners can be round or squircle again (Settings → Banner), and while a banner shows nothing peeks out above it. The widget's round checkbox shows an outlined check, and a filled cross once done.",
+          "size": 1422668,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.3.3/HabitsOnReminders.ipa"
+        },
+        {
           "version": "1.3.2",
           "buildVersion": "11",
           "date": "2026-10-17",
@@ -123,11 +132,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.3.2",
+      "version": "1.3.3",
       "versionDate": "2026-10-17",
-      "versionDescription": "Removes leftover habit reminders from older versions that could still arrive; the app now only sends calendar event notifications.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.3.2/HabitsOnReminders.ipa",
-      "size": 1413027
+      "versionDescription": "Banners can be round or squircle again (Settings → Banner), and while a banner shows nothing peeks out above it. The widget's round checkbox shows an outlined check, and a filled cross once done.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.3.3/HabitsOnReminders.ipa",
+      "size": 1422668
     }
   ],
   "news": [],
