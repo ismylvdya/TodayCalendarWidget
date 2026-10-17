@@ -2064,11 +2064,11 @@ struct BannerSection: View {
                 ForEach(ToastSettings.Corners.allCases) { Text($0.title).tag($0.rawValue) }
             }
             .pickerStyle(.segmented)
-            Button("Show Banner") { Toast.show("This is how banners look after an action") }
+            Button("Show Banner") { Toast.show("This is how banners look after an action. A long message shows two lines first — tap the banner to read the rest of it, swipe it up to close.") }
         } header: {
             RoundedHeader("Banner")
         } footer: {
-            Text("The banner at the top after an action: it stays 10 seconds, tap it or swipe it up to close.")
+            Text("The banner at the top after an action: up to two lines — tap it to show the whole text. It closes after 10 seconds (unless opened) or when swiped up.")
         }
     }
 }
@@ -2174,6 +2174,9 @@ struct CalendarSettingsView: View {
     @AppStorage(CalendarSettings.Key.bellOpacityDark, store: AppGroup.defaults) private var bellDark = 0.7
     @AppStorage(CalendarSettings.Key.bellHexLight, store: AppGroup.defaults) private var bellHexLight = ""
     @AppStorage(CalendarSettings.Key.bellHexDark, store: AppGroup.defaults) private var bellHexDark = ""
+    @AppStorage(CalendarSettings.Key.bellSize, store: AppGroup.defaults) private var bellSize = 9.0
+    @AppStorage(CalendarSettings.Key.bellInsetTop, store: AppGroup.defaults) private var bellInsetTop = 3.0
+    @AppStorage(CalendarSettings.Key.bellInsetRight, store: AppGroup.defaults) private var bellInsetRight = 3.0
     @AppStorage(CalendarSettings.Key.defaultDayStart, store: AppGroup.defaults) private var dayStart = 6
     @AppStorage(CalendarSettings.Key.defaultDayEnd, store: AppGroup.defaults) private var dayEnd = 24
 
@@ -2222,10 +2225,13 @@ struct CalendarSettingsView: View {
                     Text("Alert bell opacity, dark: \(Int((bellDark * 100).rounded()))%")
                     Slider(value: $bellDark, in: 0...1)
                 }
+                ValueStepper("Alert bell size:", shown: "\(Int(bellSize))", after: "pt", value: $bellSize, in: 5...16, step: 1)
+                ValueStepper("Bell from top:", shown: "\(Int(bellInsetTop))", after: "pt", value: $bellInsetTop, in: 0...10, step: 1)
+                ValueStepper("Bell from right:", shown: "\(Int(bellInsetRight))", after: "pt", value: $bellInsetRight, in: 0...10, step: 1)
             } header: {
                 RoundedHeader("Widget")
             } footer: {
-                Text("Default Day Start and End apply to calendar widgets whose Day start/end is set to “Default”. An empty bell color means the event's calendar color.")
+                Text("Default Day Start and End apply to calendar widgets whose Day start/end is set to “Default”. An empty bell color means the event's calendar color. On events too short for the bell it gets smaller and stays centered between the top and bottom edges.")
             }
         }
         .navigationBarTitleDisplayMode(.inline)

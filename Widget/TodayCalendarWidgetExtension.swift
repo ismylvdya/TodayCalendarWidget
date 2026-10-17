@@ -479,42 +479,58 @@ struct EventBlock: View {
         let pad: CGFloat = height >= 19 ? 3 : 1
         let fontSize = min(11, max(4, (height - 2 * pad) / 1.2))
         let stripeInset = min(3, height / 4)
-        HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(event.title)
-                    .font(.system(size: fontSize, weight: .semibold))
-                    .foregroundStyle(eventTextStyle(color, mode, scheme))
-                    .lineLimit(height > 30 ? 2 : 1)
-                // На месте прежнего времени начала — колокольчик, если у события есть alert.
-                if event.hasAlarm && height > 34 {
-                    Image(systemName: "bell")
-                        .font(.system(size: 10, weight: .medium))
-                        // Цвет календаря, но прозрачнее (насколько — в настройках, отдельно для
-                        // светлой и тёмной темы); при инверсии выбивается целиком.
-                        .foregroundStyle(inverted ? AnyShapeStyle(HierarchicalShapeStyle.primary)
-                                         : mode == .fullColor && isPhone
-                                            ? AnyShapeStyle((CalendarSettings.bellColor(dark: scheme == .dark) ?? color)
-                                                .opacity(CalendarSettings.bellOpacity(dark: scheme == .dark)))
-                                         : AnyShapeStyle(.secondary))
-                        // На переходе между колонками растворяется вместе с плашкой: та же маска
-                        // затухания, но в координатах всей плашки.
-                        .mask {
-                            GeometryReader { g in
-                                FadeMask(top: continuesBefore, bottom: continuesAfter)
-                                    .frame(height: height)
-                                    .offset(y: -g.frame(in: .named("eventBlock")).minY)
-                            }
+        // Колокольчик — в правом верхнем углу плашки, с отступами и размером из настроек. У короткой
+        // плашки он меньше и по центру по высоте — на равном расстоянии от верха, низа и правого края.
+        let bellTop = CGFloat(CalendarSettings.bellInsetTop), bellRight = CGFloat(CalendarSettings.bellInsetRight)
+        let bellSize = max(4, min(CGFloat(CalendarSettings.bellSize), height - 2 * min(bellTop, height / 4)))
+        let bellY = min(bellTop, max(0, (height - bellSize) / 2))
+        let titleTop: CGFloat = height > 16 ? 2 : 0
+        let lineHeight = fontSize * 1.2
+        Text(event.title)
+            .font(.system(size: fontSize, weight: .semibold))
+            .foregroundStyle(eventTextStyle(color, mode, scheme))
+            .lineLimit(height > 30 ? 2 : 1)
+            .padding(.top, titleTop)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // Первая строка названия растворяется перед колокольчиком, а не обрезается многоточием.
+            .mask {
+                if event.hasAlarm {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            Color.black
+                            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 10)
+                            // Справа у текста поле 3 pt — колокольчик занимает остальное.
+                            Color.clear.frame(width: max(0, bellRight + bellSize - 3 + 2))
                         }
-                        .padding(.top, 2)
+                        .frame(height: titleTop + lineHeight)
+                        Color.black
+                    }
+                } else {
+                    Color.black
                 }
             }
-            .padding(.top, height > 16 ? 2 : 0)
-            Spacer(minLength: 0)
-        }
         .padding(.horizontal, 3)
         .padding(.vertical, pad)
         .padding(.leading, 7)
         .frame(maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .topTrailing) {
+            if event.hasAlarm {
+                Image(systemName: "bell").resizable().scaledToFit()
+                    .fontWeight(.medium)
+                    .frame(width: bellSize, height: bellSize)
+                    .padding(.top, bellY)
+                    .padding(.trailing, bellRight)
+                    // Цвет календаря, но прозрачнее (насколько — в настройках, отдельно для
+                    // светлой и тёмной темы); при инверсии выбивается целиком.
+                    .foregroundStyle(inverted ? AnyShapeStyle(HierarchicalShapeStyle.primary)
+                                     : mode == .fullColor && isPhone
+                                        ? AnyShapeStyle((CalendarSettings.bellColor(dark: scheme == .dark) ?? color)
+                                            .opacity(CalendarSettings.bellOpacity(dark: scheme == .dark)))
+                                     : AnyShapeStyle(.secondary))
+                    // На переходе между колонками растворяется вместе с плашкой.
+                    .mask(alignment: .top) { FadeMask(top: continuesBefore, bottom: continuesAfter).frame(height: height) }
+            }
+        }
         .coordinateSpace(name: "eventBlock")
         .overlay(alignment: .leading) {
             UnevenRoundedRectangle(topLeadingRadius: continuesBefore ? 0 : 1.5, bottomLeadingRadius: continuesAfter ? 0 : 1.5,

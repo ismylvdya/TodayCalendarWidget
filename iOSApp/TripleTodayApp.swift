@@ -66,6 +66,8 @@ enum ToastSettings {
 
 struct ToastView: View {
     let toast: Toast
+    /// Свёрнута — не больше двух строк с многоточием; развёрнута — весь текст.
+    var expanded = false
     @AppStorage(ToastSettings.Key.width, store: AppGroup.defaults) private var width = ToastSettings.defaultWidth
     @AppStorage(ToastSettings.Key.corners, store: AppGroup.defaults) private var corners = ToastSettings.Corners.round.rawValue
 
@@ -79,6 +81,7 @@ struct ToastView: View {
             Image(systemName: toast.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(toast.isError ? .orange : .green)
             Text(toast.text).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
+                .lineLimit(expanded ? nil : 2)
         }
         // Ровно заданной ширины, а не по тексту (иначе ширина менялась скачками — по переносам).
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -86,11 +89,11 @@ struct ToastView: View {
         .padding(.vertical, 10)
         .background(.regularMaterial, in: shape)
         .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
-        // Под плашкой и ещё примерно на 31 pt вокруг — системное размытие, мягко сходящее на нет.
+        // Под плашкой и ещё примерно на 25 pt вокруг — системное размытие, мягко сходящее на нет.
         .background {
             Rectangle().fill(.ultraThinMaterial)
-                .padding(-31)
-                .mask(shape.padding(-18).blur(radius: 14))
+                .padding(-25)
+                .mask(shape.padding(-14).blur(radius: 11))
                 .allowsHitTesting(false)
         }
         // Уже экрана: кнопка «назад» слева остаётся открытой, текст переносится в высоту.
@@ -104,20 +107,24 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     private let store = EKEventStore()
 
+    @State private var toastExpanded = false
+
     var body: some View {
         MainView(openHabit: router.habit)
             .overlay(alignment: .top) {
                 if let toast = router.toast {
-                    ToastView(toast: toast)
+                    ToastView(toast: toast, expanded: toastExpanded)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                        // Висит 10 секунд; раньше — нажатием или смахиванием вверх.
-                        .onTapGesture { withAnimation { router.toast = nil } }
+                        // Нажатие раскрывает весь текст (и плашка больше не исчезает сама);
+                        // убирается смахиванием вверх или сама через 10 секунд, если не раскрыта.
+                        .onTapGesture { withAnimation(.spring(duration: 0.3)) { toastExpanded = true } }
                         .gesture(DragGesture(minimumDistance: 10).onEnded { value in
                             if value.translation.height < -10 { withAnimation { router.toast = nil } }
                         })
                         .task(id: toast.id) {
+                            toastExpanded = false
                             try? await Task.sleep(for: .seconds(10))
-                            if router.toast?.id == toast.id { withAnimation { router.toast = nil } }
+                            if router.toast?.id == toast.id && !toastExpanded { withAnimation { router.toast = nil } }
                         }
                 }
             }
