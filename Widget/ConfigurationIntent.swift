@@ -154,6 +154,9 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
     @Parameter(title: "Hide All-day Events", default: false)
     var hideAllDay: Bool
 
+    @Parameter(title: "Edge without margin", description: "To stack widgets one under another without a gap", default: .none)
+    var noMarginEdge: MarginEdgeOption
+
     @Parameter(title: "Calendars to hide past events", optionsProvider: ShownCalendarsOptions())
     var hidePastCalendars: [CalendarEntity]?
 
@@ -172,6 +175,7 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
             \.$calendars
             \.$dayStartHour
             \.$dayEndHour
+            \.$noMarginEdge
             \.$hideAllDay
             \.$hidePastCalendars
             \.$dimPast
@@ -190,6 +194,19 @@ struct DayConfigurationIntent: WidgetConfigurationIntent {
         c.dimCalendarIDs = Set((dimCalendars ?? []).map(\.id))
         c.hideAllDay = hideAllDay
         c.dimPastEvents = dimPast
+        c.edgeWithoutMargin = MarginEdge(rawValue: noMarginEdge.rawValue) ?? .none
         return c
     }
+}
+
+/// Край виджета без отступа — выбор в настройках виджета.
+enum MarginEdgeOption: Int, AppEnum {
+    case none = 0
+    case top = 1
+    case bottom = 2
+
+    static var typeDisplayRepresentation: TypeDisplayRepresentation = "Edge"
+    static var caseDisplayRepresentations: [MarginEdgeOption: DisplayRepresentation] = [
+        .none: "None", .top: "Top", .bottom: "Bottom",
+    ]
 }

@@ -53,11 +53,14 @@ struct PageTitle: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// Высота заголовка: одна строка или две.
+    /// Высота заголовка: первая строка и сколько строк займёт остальное на всю ширину.
     static func height(_ title: String, sideInset: CGFloat = PageTitle.sideInset) -> CGFloat {
         let full = UIScreen.main.bounds.width - 32
-        let lines: CGFloat = split(title, firstWidth: full - 2 * sideInset).1.isEmpty ? 1 : 2
-        return lines * font.lineHeight
+        let rest = split(title, firstWidth: full - 2 * sideInset).1
+        guard !rest.isEmpty else { return font.lineHeight }
+        let restHeight = (rest as NSString).boundingRect(with: CGSize(width: full, height: .greatestFiniteMagnitude),
+                                                         options: .usesLineFragmentOrigin, attributes: [.font: font], context: nil).height
+        return font.lineHeight + max(font.lineHeight, ceil(restHeight))
     }
 
     /// Первая строка — столько слов, сколько помещается в `firstWidth` (или до явного переноса);
@@ -105,8 +108,8 @@ struct TopFade: View {
 extension View {
     /// Вложенная страница: большой заголовок поверх содержимого (на месте невидимого заголовка
     /// с координатами `rowY`); при прокрутке он плавно уменьшается и встаёт в панель одной строкой.
-    func subpageTitle(_ title: String, rowY: CGFloat?, hidden: Bool = false) -> some View {
-        modifier(SubpageTitle(title: title, rowY: rowY, hidden: hidden))
+    func subpageTitle(_ title: String, rowY: CGFloat?, hidden: Bool = false, color: Color = .primary) -> some View {
+        modifier(SubpageTitle(title: title, rowY: rowY, hidden: hidden, color: color))
     }
 
     /// Страница-список с большим заголовком: заголовок рисуется поверх списка (на месте пустой
@@ -174,10 +177,10 @@ struct SubpageTitle: ViewModifier {
     let rowY: CGFloat?
     /// Пока название редактируется — заголовок не рисуем (видно поле ввода).
     let hidden: Bool
+    /// Цвет заголовка (у привычки — её цвет).
+    var color: Color = .primary
     @State private var offset: CGFloat = 0
     @State private var offsetAtRowY: CGFloat = 0
-    /// Прокрутка от исходного положения (без отскока при «потянуть вниз»).
-    @State private var scrolled: CGFloat = 0
 
     private static let bigSize: CGFloat = 34
     /// Ширина строки в панели: экран без кнопки «назад» и такого же поля справа.
@@ -200,7 +203,6 @@ struct SubpageTitle: ViewModifier {
         content
             .coordinateSpace(name: PageTitleRow.space)
             .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, value in offset = value }
-            .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, value in scrolled = max(0, value) }
             .onChange(of: rowY) { offsetAtRowY = offset }
             .overlay(alignment: .top) { TopFade() }
             .overlay(alignment: .top) {
@@ -209,33 +211,38 @@ struct SubpageTitle: ViewModifier {
                         let top = g.safeAreaInsets.top
                         // Всё — в координатах экрана (слой поднят на высоту панели).
                         let y = rowY - (offset - offsetAtRowY)
-                        // Где был заголовок до прокрутки.
-                        let start = y + scrolled
                         let docked = dockedSize
                         let dockedLine = Self.font(docked).lineHeight
-                        // Центр строки в панели — на уровне кнопки «назад».
+                        // Маленький — одной строкой в панели, центр на уровне кнопки «назад».
                         let dockTop = top - 32 - dockedLine / 2
-                        // Уменьшается на пути до панели и ещё на высоту самого заголовка: дойдя до
-                        // панели, он встаёт в неё и дальше уменьшается уже там.
-                        let travel = max(1, start - dockTop + PageTitle.height(title) * 0.8)
-                        let p = min(1, max(0, (start - y) / travel))
-                        let shownTop = max(y, dockTop)
-                        // Шрифт уменьшается плавно; строки сами перестраиваются (3 → 2 → 1).
-                        let size = Self.bigSize + (docked - Self.bigSize) * p
-                        // Под вставшим в панель заголовком содержимое закрыто фоном страницы
-                        // (плотнее по мере того, как заголовок встаёт в панель).
-                        let barBottom = dockTop + dockedLine + 10
+                        let smallBottom = dockTop + dockedLine
+                        // Большой гаснет, а маленький проявляется, когда низ большого проходит низ
+                        // маленького (переход — на 16 pt прокрутки).
+                        let bigBottom = y + PageTitle.height(title)
+                        let big = Double(min(1, max(0, (bigBottom - smallBottom + 8) / 16)))
                         LinearGradient(stops: [
                             .init(color: Color(.systemGroupedBackground).opacity(0.97), location: 0),
-                            .init(color: Color(.systemGroupedBackground).opacity(0.9), location: max(0, (barBottom - 14) / (barBottom + 14))),
+                            .init(color: Color(.systemGroupedBackground).opacity(0.9), location: max(0, (smallBottom - 4) / (smallBottom + 24))),
                             .init(color: Color(.systemGroupedBackground).opacity(0), location: 1),
                         ], startPoint: .top, endPoint: .bottom)
-                        .frame(width: g.size.width, height: barBottom + 14)
-                        .opacity(p)
+                        .frame(width: g.size.width, height: smallBottom + 24)
+                        .opacity(1 - big)
                         .offset(y: -top)
-                        PageTitle(title, sideInset: PageTitle.sideInset, size: size)
+                        // Маленький — обычным цветом текста, большой — цветом привычки.
+                        Text(title)
+                            .font(.system(size: docked, weight: .bold, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                            .frame(width: g.size.width)
+                            .offset(y: dockTop)
+                            .opacity(1 - big)
+                            .frame(width: g.size.width, height: g.size.height + top, alignment: .top)
+                            .offset(y: -top)
+                        PageTitle(title, sideInset: PageTitle.sideInset)
+                            .foregroundStyle(color)
                             .padding(.horizontal, 16)
-                        .offset(y: shownTop)
+                            .offset(y: y)
+                            .opacity(big)
                         .frame(width: g.size.width, height: g.size.height + top, alignment: .top)
                         .offset(y: -top)
                     }
@@ -633,8 +640,12 @@ struct TodayCheckbox: View {
             DayMenuItems(habit: habit, day: today, style: HabitSettings.style, setState: setState, editNote: editNote,
                          reasons: reasons, setReason: setReason, newReason: newReason)
         } label: {
+            // Кольцо «дважды» выходит за кружок — область (и снимок для меню) с запасом под него.
             RoundCheckbox(habit: habit, size: CGFloat(checkboxSize), today: today)
-                .contentShape(Circle())
+                .padding(CGFloat(checkboxSize) * 0.1)
+                .contentShape(.interaction, Circle())
+                .contentShape(.contextMenuPreview, Circle())
+                .padding(-CGFloat(checkboxSize) * 0.1)
         } primaryAction: {
             tap()
         }
@@ -707,6 +718,7 @@ struct HabitRow: View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 3) {
                 Text(habit.title).font(.system(.body, design: .rounded).weight(.semibold))
+                    .foregroundStyle(habit.color)
                 if longGap { Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange) }
             }
             Text(subtitle).font(.caption).foregroundStyle(.secondary)
@@ -930,50 +942,6 @@ struct OwnColorField: View {
     }
 }
 
-/// Выбор иконки приложения: четыре варианта в ряд, стрелка — под текущей.
-/// iOS меняет иконку сразу (и сама показывает об этом сообщение); перезапуск не нужен.
-struct AppIconPicker: View {
-    /// nil — основная иконка, иначе имя альтернативной из каталога ресурсов.
-    private static let icons: [(name: String?, preview: String)] = [
-        (nil, "IconPreview-1"), ("AppIcon-2", "IconPreview-2"), ("AppIcon-3", "IconPreview-3"), ("AppIcon-4", "IconPreview-4"),
-    ]
-    @State private var current = UIApplication.shared.alternateIconName
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("App Icon")
-            HStack(spacing: 10) {
-                ForEach(Self.icons, id: \.preview) { icon in
-                    VStack(spacing: 8) {
-                        Image(icon.preview).resizable().scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .frame(width: 60, height: 60)
-                        Image(systemName: "arrow.up").font(.system(size: 18, weight: .bold)).foregroundStyle(.secondary)
-                            .opacity(icon.name == current ? 1 : 0)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture { select(icon.name) }
-                }
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func select(_ name: String?) {
-        guard name != current else { return }
-        UIApplication.shared.setAlternateIconName(name) { error in
-            Task { @MainActor in
-                if let error {
-                    Toast.show("Couldn't change the icon: \(error.localizedDescription)", error: true)
-                } else {
-                    current = name
-                    Toast.show("App icon changed")
-                }
-            }
-        }
-    }
-}
 
 /// Кнопка ⓘ с пояснением во всплывающем окне.
 struct InfoButton: View {
@@ -1006,6 +974,9 @@ struct HabitDetailView: View {
     @State private var confirmingDelete = false
     @State private var choosingReminder = false
     @State private var choosingMerge = false
+    /// Импорт дней в эту привычку из CSV и экспорт картинкой.
+    @State private var importingDays = false
+    @State private var exportingImage = false
     @State private var mergeWith: Habit?
     @State private var editingTitle = false
     @FocusState private var titleFocused: Bool
@@ -1097,6 +1068,10 @@ struct HabitDetailView: View {
                             Spacer()
                             InfoButton(text: HabitCSV.formatInfo, tint: .accentColor)
                         }
+                        Divider()
+                        Button { importingDays = true } label: { Label("Import CSV…", systemImage: "square.and.arrow.down") }
+                        Divider()
+                        Button { exportingImage = true } label: { Label("Export Image…", systemImage: "photo") }
                         if habit.isTrashed {
                             Divider()
                             Button {
@@ -1161,7 +1136,7 @@ struct HabitDetailView: View {
             .refreshable { await store.forceRefresh() }
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { pageBottom = $0 }
             .navigationBarTitleDisplayMode(.inline)
-            .subpageTitle(habit.title, rowY: titleY, hidden: editingTitle)
+            .subpageTitle(habit.title, rowY: titleY, hidden: editingTitle, color: habit.color)
             .alert(noteDay.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Note",
                    isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
                 TextField("Note", text: $noteText)
@@ -1172,6 +1147,20 @@ struct HabitDetailView: View {
                 Button("Cancel", role: .cancel) { noteDay = nil }
             }
             .newReasonAlert(store: store, target: $reasonFor, text: $reasonText)
+            .sheet(isPresented: $exportingImage) { YearExportSheet(habit: habit) }
+            .fileImporter(isPresented: $importingDays, allowedContentTypes: [.commaSeparatedText, .plainText, .text]) { result in
+                guard case .success(let url) = result else { return }
+                let access = url.startAccessingSecurityScopedResource()
+                defer { if access { url.stopAccessingSecurityScopedResource() } }
+                let text = (try? String(contentsOf: url, encoding: .utf8)) ?? (try? String(contentsOf: url, encoding: .isoLatin1)) ?? ""
+                let parsed = HabitCSV.parseDays(text)
+                if parsed.states.isEmpty && parsed.notes.isEmpty {
+                    Toast.show("No dates found in this file", error: true)
+                } else {
+                    let added = store.importDays(habitID, states: parsed.states, notes: parsed.notes)
+                    Toast.show("Imported \(added) \(added == 1 ? "day" : "days") into “\(habit.title)”")
+                }
+            }
             .sheet(isPresented: $choosingMerge) {
                 HabitPickerView(habits: store.habits.filter { $0.id != habitID && !$0.isTrashed }) { mergeWith = $0 }
             }
@@ -1215,6 +1204,16 @@ struct HabitDetailView: View {
                 if !$0 { h.weeklyGoal = min(h.weeklyGoal, 7) }
                 store.update(h)
             }))
+            // Считать ли день «дважды» за 2 — везде: цель на неделю, кольцо, «N this week»,
+            // проценты и статистика по дням недели.
+            if habit.twiceADay {
+                Toggle("Count twice days as 2", isOn: Binding(get: { habit.goalCountsTwice }, set: {
+                    var h = habit; h.goalCountsTwice = $0
+                    if !$0 { h.weeklyGoal = min(h.weeklyGoal, 7) }
+                    store.update(h)
+                }))
+                .padding(.leading, 20)
+            }
             Divider()
             // Правило для пропусков — одно из: подсветка пропусков сверх допуска или цель на неделю.
             SelectRow(title: "Skip rule:", options: Habit.Rule.allCases.map { ($0, $0.title) },
@@ -1235,14 +1234,6 @@ struct HabitDetailView: View {
                              value: Binding(get: { habit.weeklyGoal }, set: { var h = habit; h.weeklyGoal = $0; store.update(h) }),
                              in: 1...(countsTwice ? 14 : 7), step: 1)
                     .padding(.leading, 20)
-                // Виден всегда; без «Twice a day» неактивен.
-                Toggle("Count twice days as 2", isOn: Binding(get: { habit.goalCountsTwice }, set: {
-                    var h = habit; h.goalCountsTwice = $0
-                    if !$0 { h.weeklyGoal = min(h.weeklyGoal, 7) }
-                    store.update(h)
-                }))
-                .disabled(!habit.twiceADay)
-                .padding(.leading, 20)
             }
             Divider()
             // Причины несделанных дней: пункт меню дня, знаки вопроса и долгие пропуски.
@@ -1311,15 +1302,25 @@ struct GrowingHistoryGrid: View {
     /// (иначе на первой раскладке она сразу растягивается до максимума).
     @State private var ready = false
     @State private var position = ScrollPosition(edge: .bottom)
-    /// Счётчик нажатий по дням — для отклика вибрацией.
-    @State private var taps = 0
-    /// Счётчик долгих нажатий — вибрация при открытии меню (у обычного меню своей нет).
-    @State private var longPresses = 0
     /// Сколько недель в ленте сейчас: растёт вместе с `weekCount`, но не уменьшается, пока
     /// страница открыта.
     @State private var shownWeeks: Int?
 
     private var cell: CGFloat { max(10, (width - 2 * pad - 6 * gap) / 7) }
+
+    /// Сколько недель рисовать сразу: видимые и ещё одна, растворяющаяся.
+    private var initialWeeks: Int { min(weekCount, baseWeeks + 2) }
+
+    /// Недели сверху; прокрутка сдвигается на их высоту, чтобы видимое не прыгнуло.
+    private func addWeeks(_ count: Int) {
+        guard count > 0, let shown = shownWeeks else { return }
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            shownWeeks = shown + count
+            position.scrollTo(y: offset + CGFloat(count) * (cell + gap))
+        }
+    }
 
     private var weekCount: Int {
         let first = ([habit.createdAt] + habit.completions.compactMap(HabitDay.date)).min() ?? Date()
@@ -1338,9 +1339,7 @@ struct GrowingHistoryGrid: View {
         // Пока низ сетки виден, высота = от текущей прокрутки до конца контента (с нижним полем).
         let height = ready ? min(maxHeight, max(base, contentHeight + bottomInset - offset)) : base
         let today = HabitDay.today()
-        let style = HabitSettings.style
-        let missed = habit.missedDays(today: today)
-        let questions = habit.questionDays(today: today)
+        let shown = shownWeeks ?? initialWeeks
 
         VStack(spacing: 8) {
             HStack(spacing: gap) {
@@ -1359,49 +1358,25 @@ struct GrowingHistoryGrid: View {
                     Text("Half a year before the first marked day")
                         .font(.caption).foregroundStyle(.secondary)
                         .padding(.vertical, 10)
+                        .opacity(shown >= weekCount ? 1 : 0)
                         .background(ScrollViewFinder { scrolls.grid = $0 })
-                    // Недели и дни опознаются по дате, а не по номеру: иначе контекстное меню
-                    // показывало чужую дату и ставило отметку не на тот день.
-                    VStack(spacing: gap) {
-                        ForEach(HabitGrid.weeks(count: shownWeeks ?? weekCount, endingAt: today), id: \.first) { week in
-                            HStack(spacing: gap) {
-                                ForEach(0..<7, id: \.self) { i in
-                                    if let day = week[i] {
-                                        dayCell(day, today: today, style: style, missed: missed.contains(HabitDay.key(day)), questions: questions).id(HabitDay.key(day))
-                                    } else {
-                                        Color.clear.frame(width: cell, height: cell)
-                                    }
-                                }
-                            }
-                            .background(alignment: .topLeading) {
-                                MissedLinks(flags: week.map { $0.map { missed.contains(HabitDay.key($0)) } ?? false }, cell: cell, gap: gap,
-                                            color: style.missedColor(habit.missedHex).opacity(style.missedLinkOpacity),
-                                            cutDays: false)
-                            }
-                        }
-                    }
-                    .sensoryFeedback(.impact(weight: .light), trigger: taps)
-                    .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
+                    // Недели — отдельным видом: он перерисовывается только при изменении привычки
+                    // или числа недель, а не на каждом кадре прокрутки страницы и сетки.
+                    GridWeeks(habit: habit, weeks: shown, today: today, cell: cell, gap: gap, reasonIDs: reasons.map(\.id),
+                              setState: setState, editNote: editNote, reasons: reasons, setReason: setReason, newReason: newReason)
+                        .equatable()
                 }
                 .padding(.horizontal, pad)
                 .padding(.bottom, pad)
             }
             .scrollPosition($position)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .onAppear { if shownWeeks == nil { shownWeeks = weekCount } }
-            // Отметили день раньше самого раннего — сверху добавляются недели (лента всегда на
-            // полгода раньше первой отметки), а прокрутка сдвигается ровно на их высоту: отмеченный
-            // день остаётся на месте. Убрали раннюю отметку — лента, пока страница открыта, не
-            // укорачивается (иначе всё под пальцем прыгнуло бы).
-            .onChange(of: weekCount) { _, new in
-                guard let shown = shownWeeks, new > shown else { return }
-                let target = offset + CGFloat(new - shown) * (cell + gap)
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    shownWeeks = new
-                    position.scrollTo(y: target)
-                }
+            .onAppear { if shownWeeks == nil { shownWeeks = initialWeeks } }
+            // Отметили день раньше самого раннего, пока лента раскрыта до конца, — сверху
+            // добавляются недели, прокрутка сдвигается на их высоту: день остаётся на месте.
+            .onChange(of: weekCount) { old, new in
+                guard let shown = shownWeeks, shown >= old, new > old else { return }
+                addWeeks(new - old)
             }
             .scrollIndicators(.hidden)
             .onScrollGeometryChange(for: [CGFloat].self) {
@@ -1411,8 +1386,23 @@ struct GrowingHistoryGrid: View {
                 contentHeight = v[1]
                 bottomInset = v[2]
                 // Готово, когда прокрутка встала в самый низ.
-                guard !ready, v[1] > 0 else { return }
-                if abs(v[3] - (v[1] + v[2])) < 2 { ready = true } else { position.scrollTo(edge: .bottom) }
+                if !ready, v[1] > 0 {
+                    if abs(v[3] - (v[1] + v[2])) < 2 { ready = true } else { position.scrollTo(edge: .bottom) }
+                    return
+                }
+                guard ready, let shown = shownWeeks else { return }
+                // Долистали до верха — подгружаем ещё полгода ранних недель.
+                if v[0] < cell + gap, shown < weekCount { addWeeks(min(26, weekCount - shown)) }
+                // Сетку свернули обратно (видны только последние недели внизу) — ранние недели
+                // убираем из отрисовки.
+                if shown > initialWeeks, v[1] + v[2] - v[0] <= base + 1 {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        shownWeeks = initialWeeks
+                        position.scrollTo(edge: .bottom)
+                    }
+                }
             }
             .frame(height: height)
             .onChange(of: base, initial: true) { scrolls.gridBase = base }
@@ -1422,6 +1412,76 @@ struct GrowingHistoryGrid: View {
         .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
         .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { cardTop = $0 }
+    }
+
+    /// Сетка растворяется у краёв подложки, если за краем есть ещё недели. Сверху — как в виджете:
+    /// 100% на уровне верха N-й недели, 0 — на высоту недели выше (со сдвигом на зазор).
+    private func edgeFade(top: Bool, bottom: Bool) -> some View {
+        VStack(spacing: 0) {
+            LinearGradient(stops: [
+                .init(color: top ? .clear : .black, location: 0),
+                .init(color: top ? .clear : .black, location: gap / (cell + gap)),
+                .init(color: .black, location: 1),
+            ], startPoint: .top, endPoint: .bottom).frame(height: cell + gap)
+            Color.black
+            LinearGradient(colors: [.black, bottom ? .clear : .black], startPoint: .top, endPoint: .bottom).frame(height: fade)
+        }
+    }
+
+    /// Иконка пункта меню одного размера для всех состояний: «не сделано» и «сделано» —
+    /// скруглённые квадраты как клетки дней, остальные — иконки из настроек.
+    /// `dim` — текущее состояние: иконка бледная (система бледнит у неактивного пункта только текст).
+}
+
+/// Недели сетки (старые сверху) — отдельно от прокрутки: при прокрутке страницы и сетки
+/// меняется только её рамка, а этот вид не перестраивается (сравнивается по данным, без замыканий).
+struct GridWeeks: View, Equatable {
+    let habit: Habit
+    let weeks: Int
+    let today: Date
+    let cell: CGFloat
+    let gap: CGFloat
+    let reasonIDs: [UUID]
+    let setState: (Date, HabitDayState) -> Void
+    let editNote: (Date) -> Void
+    let reasons: [SkipReason]
+    let setReason: (Date, UUID?) -> Void
+    let newReason: (Date) -> Void
+    /// Счётчик нажатий по дням — для отклика вибрацией.
+    @State private var taps = 0
+    /// Счётчик долгих нажатий — вибрация при открытии меню (у обычного меню своей нет).
+    @State private var longPresses = 0
+
+    static func == (a: GridWeeks, b: GridWeeks) -> Bool {
+        a.habit == b.habit && a.weeks == b.weeks && a.today == b.today && a.cell == b.cell && a.reasonIDs == b.reasonIDs
+    }
+
+    var body: some View {
+        let style = HabitSettings.style
+        let missed = habit.missedDays(today: today)
+        let questions = habit.questionDays(today: today)
+        // Недели и дни опознаются по дате, а не по номеру: иначе контекстное меню
+        // показывало чужую дату и ставило отметку не на тот день.
+        VStack(spacing: gap) {
+            ForEach(HabitGrid.weeks(count: weeks, endingAt: today), id: \.first) { week in
+                HStack(spacing: gap) {
+                    ForEach(0..<7, id: \.self) { i in
+                        if let day = week[i] {
+                            dayCell(day, today: today, style: style, missed: missed.contains(HabitDay.key(day)), questions: questions).id(HabitDay.key(day))
+                        } else {
+                            Color.clear.frame(width: cell, height: cell)
+                        }
+                    }
+                }
+                .background(alignment: .topLeading) {
+                    MissedLinks(flags: week.map { $0.map { missed.contains(HabitDay.key($0)) } ?? false }, cell: cell, gap: gap,
+                                color: style.missedColor(habit.missedHex).opacity(style.missedLinkOpacity),
+                                cutDays: false)
+                }
+            }
+        }
+        .sensoryFeedback(.impact(weight: .light), trigger: taps)
+        .sensoryFeedback(.impact(weight: .medium), trigger: longPresses)
     }
 
     private func cellView(_ day: Date, today: Date, style: HabitStyle, size: CGFloat, missed: Bool = false, questions: Set<String>) -> HabitCell {
@@ -1468,23 +1528,6 @@ struct GrowingHistoryGrid: View {
         .padding(.top, -extra.top)
     }
 
-    /// Сетка растворяется у краёв подложки, если за краем есть ещё недели. Сверху — как в виджете:
-    /// 100% на уровне верха N-й недели, 0 — на высоту недели выше (со сдвигом на зазор).
-    private func edgeFade(top: Bool, bottom: Bool) -> some View {
-        VStack(spacing: 0) {
-            LinearGradient(stops: [
-                .init(color: top ? .clear : .black, location: 0),
-                .init(color: top ? .clear : .black, location: gap / (cell + gap)),
-                .init(color: .black, location: 1),
-            ], startPoint: .top, endPoint: .bottom).frame(height: cell + gap)
-            Color.black
-            LinearGradient(colors: [.black, bottom ? .clear : .black], startPoint: .top, endPoint: .bottom).frame(height: fade)
-        }
-    }
-
-    /// Иконка пункта меню одного размера для всех состояний: «не сделано» и «сделано» —
-    /// скруглённые квадраты как клетки дней, остальные — иконки из настроек.
-    /// `dim` — текущее состояние: иконка бледная (система бледнит у неактивного пункта только текст).
 }
 
 /// Меню дня — в сетке и у чекбокса на главной (для сегодняшнего дня): дата, «недоделано»
@@ -1727,9 +1770,10 @@ struct HabitStats {
             longestPeriod = longestStreak == 1 ? "(\(f.string(from: end)))" : "(\(f.string(from: start))–\(f.string(from: end)))"
         }
 
-        // Проценты — от максимума: у «Twice a day» день «дважды» — 100%, один раз — 50%.
-        let perDay = Double(habit.twiceADay ? 2 : 1)
-        func units(_ back: Int) -> Int { habit.units(day(back)) }
+        // Проценты — от максимума: если «дважды» считается за 2, день «дважды» — 100%, один раз —
+        // 50%; иначе любой сделанный день — 100%.
+        let perDay = Double(habit.twiceADay && habit.goalCountsTwice ? 2 : 1)
+        func units(_ back: Int) -> Int { habit.goalUnits(day(back)) }
         last7 = Double((0..<7).reduce(0) { $0 + units($1) }) / (7 * perDay)
         last30 = Double((0..<30).reduce(0) { $0 + units($1) }) / (30 * perDay)
         allTime = Double((0..<total).reduce(0) { $0 + units($1) }) / (Double(max(1, total)) * perDay)
@@ -1751,7 +1795,7 @@ struct HabitStats {
         var counts = Array(repeating: 0, count: 7)
         for d in dates {
             let index = (cal.component(.weekday, from: d) - cal.firstWeekday + 7) % 7
-            counts[index] += max(1, habit.units(d))
+            counts[index] += max(1, habit.goalUnits(d))
         }
         byWeekday = zip(symbols, counts).map { ($0, $1) }
 
@@ -2285,6 +2329,8 @@ struct CalendarSettingsView: View {
     @AppStorage(CalendarSettings.Key.bellOpacityDark, store: AppGroup.defaults) private var bellDark = 0.7
     @AppStorage(CalendarSettings.Key.bellHexLight, store: AppGroup.defaults) private var bellHexLight = ""
     @AppStorage(CalendarSettings.Key.bellHexDark, store: AppGroup.defaults) private var bellHexDark = ""
+    @AppStorage(CalendarSettings.Key.darkBackgroundHex, store: AppGroup.defaults) private var darkBackgroundHex = ""
+    @AppStorage(CalendarSettings.Key.darkGradient, store: AppGroup.defaults) private var darkGradient = true
     @AppStorage(CalendarSettings.Key.bellInsetTop, store: AppGroup.defaults) private var bellInsetTop = 3.0
     @AppStorage(CalendarSettings.Key.defaultDayStart, store: AppGroup.defaults) private var dayStart = 6
     @AppStorage(CalendarSettings.Key.defaultDayEnd, store: AppGroup.defaults) private var dayEnd = 24
@@ -2311,9 +2357,6 @@ struct CalendarSettingsView: View {
             }
             .listSectionSpacing(18)
             Section {
-                AppIconPicker()
-            }
-            Section {
                 Picker("Default Day Start", selection: $dayStart) { ForEach(0..<24, id: \.self) { Text("\($0):00").tag($0) } }
                 Picker("Default Day End", selection: $dayEnd) { ForEach(0...24, id: \.self) { Text("\($0):00").tag($0) } }
                 ValueStepper("Show “synced N min ago” after", shown: "\(staleMinutes)", after: "min", value: $staleMinutes, in: 5...240, step: 5)
@@ -2323,22 +2366,41 @@ struct CalendarSettingsView: View {
                     Text("Cursor over events: \(Int((cursorOverEvent * 100).rounded()))%")
                     Slider(value: $cursorOverEvent, in: 0...1)
                 }
-                // Пусто — цвет календаря события.
-                HexField(title: "Alert bell color, light", hex: $bellHexLight, alpha: false)
-                VStack(alignment: .leading) {
-                    Text("Alert bell opacity, light: \(Int((bellLight * 100).rounded()))%")
-                    Slider(value: $bellLight, in: 0...1)
-                }
-                HexField(title: "Alert bell color, dark", hex: $bellHexDark, alpha: false)
-                VStack(alignment: .leading) {
-                    Text("Alert bell opacity, dark: \(Int((bellDark * 100).rounded()))%")
-                    Slider(value: $bellDark, in: 0...1)
-                }
                 ValueStepper("Bell from top:", shown: "\(Int(bellInsetTop))", after: "pt", value: $bellInsetTop, in: 0...10, step: 1)
             } header: {
                 RoundedHeader("Widget")
             } footer: {
-                Text("Default Day Start and End apply to calendar widgets whose Day start/end is set to “Default”. An empty bell color means the event's calendar color. The bell sits in the corner with the same gap to the top and right (Bell from top).")
+                Text("Default Day Start and End apply to calendar widgets whose Day start/end is set to “Default”. The bell sits in the corner with the same gap to the top and right (Bell from top).")
+            }
+            .listSectionSpacing(18)
+
+            Section {
+                // Пусто — цвет календаря события.
+                HexField(title: "Alert bell color", hex: $bellHexLight, alpha: false)
+                VStack(alignment: .leading) {
+                    Text("Alert bell opacity: \(Int((bellLight * 100).rounded()))%")
+                    Slider(value: $bellLight, in: 0...1)
+                }
+            } header: {
+                RoundedHeader("Light")
+            } footer: {
+                Text("An empty bell color means the event's calendar color, darker.")
+            }
+            .listSectionSpacing(18)
+
+            Section {
+                HexField(title: "Background color", hex: Binding(get: { darkBackgroundHex.isEmpty ? CalendarSettings.defaultDarkBackgroundHex : darkBackgroundHex },
+                                                                  set: { darkBackgroundHex = String($0.prefix(7)) }), alpha: false)
+                Toggle("Background gradient", isOn: $darkGradient)
+                HexField(title: "Alert bell color", hex: $bellHexDark, alpha: false)
+                VStack(alignment: .leading) {
+                    Text("Alert bell opacity: \(Int((bellDark * 100).rounded()))%")
+                    Slider(value: $bellDark, in: 0...1)
+                }
+            } header: {
+                RoundedHeader("Dark")
+            } footer: {
+                Text("The gradient makes the background slightly lighter toward the top. An empty bell color means the event's calendar color.")
             }
         }
         .navigationBarTitleDisplayMode(.inline)

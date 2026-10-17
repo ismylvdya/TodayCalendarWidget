@@ -406,6 +406,33 @@ enum HabitCSV {
         var reasons: [String: String] = [:]
     }
 
+    /// Дни одной привычки из любого CSV: столбец дат (по заголовку или первый, где даты),
+    /// необязательно — статус и заметка. Без статуса каждая дата — сделано.
+    static func parseDays(_ text: String) -> (states: [String: HabitDayState], notes: [String: String]) {
+        let rows = csvRows(text).filter { !$0.allSatisfy { $0.trimmingCharacters(in: .whitespaces).isEmpty } }
+        guard let first = rows.first else { return ([:], [:]) }
+        let header = first.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        func column(_ names: [String]) -> Int? { header.firstIndex { names.contains($0) } }
+        var dateCol = column(["date", "day", "entry_date", "completed_date", "datetime"])
+        // Без заголовка — первый столбец, в котором даты; тогда и первая строка — данные.
+        let headerless = dateCol == nil && first.contains { dayKey($0) != nil }
+        if dateCol == nil {
+            dateCol = (rows.count > 1 ? rows[1] : first).firstIndex { dayKey($0) != nil }
+        }
+        guard let dateCol else { return ([:], [:]) }
+        let statusCol = headerless ? nil : column(["status", "value", "state", "completed", "result", "count", "quantity"])
+        let noteCol = headerless ? nil : column(["note", "notes", "comment"])
+        func cell(_ row: [String], _ i: Int?) -> String { i.flatMap { $0 < row.count ? row[$0].trimmingCharacters(in: .whitespaces) : nil } ?? "" }
+        var states: [String: HabitDayState] = [:], notes: [String: String] = [:]
+        for row in headerless ? rows : Array(rows.dropFirst()) {
+            guard let key = dayKey(cell(row, dateCol)) else { continue }
+            if let state = state(cell(row, statusCol), defaultDone: statusCol == nil) { states[key] = state }
+            let note = cell(row, noteCol)
+            if !note.isEmpty { notes[key] = note }
+        }
+        return (states, notes)
+    }
+
     /// Несколько файлов сразу: таблица привычек (habit_id, habit_name без даты) даёт названия
     /// для таблицы дней; остальные файлы — как в `parse`.
     static func parse(files: [(text: String, fileName: String)]) -> [Imported] {
@@ -495,7 +522,7 @@ enum HabitCSV {
     }
 
     /// Статус дня из чужих обозначений; nil — день не отмечен.
-    private static func state(_ raw: String, defaultDone: Bool) -> HabitDayState? {
+    static func state(_ raw: String, defaultDone: Bool) -> HabitDayState? {
         let s = raw.lowercased()
         if s.isEmpty { return defaultDone ? .done : nil }
         switch s {
@@ -512,7 +539,7 @@ enum HabitCSV {
     }
 
     /// «yyyy-MM-dd» из распространённых форматов дат (время отбрасывается).
-    private static func dayKey(_ raw: String) -> String? {
+    static func dayKey(_ raw: String) -> String? {
         let s = raw.trimmingCharacters(in: .whitespaces)
         let formats = ["yyyy-MM-dd", "yyyy/MM/dd", "dd.MM.yyyy", "MM/dd/yyyy", "dd/MM/yyyy", "yyyyMMdd"]
         let candidates = [String(s.prefix(10)), String(s.prefix(8)), s]

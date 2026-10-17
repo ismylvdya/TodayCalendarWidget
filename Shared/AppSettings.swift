@@ -22,11 +22,15 @@ enum AppGroup {
         (Bundle.main.object(forInfoDictionaryKey: "ALTAppGroups") as? [String])?.first ?? defaultID
     }
 
+    /// На Mac — своя группа приложения и виджета (настройки из окна Preferences видит виджет).
+    /// Начинается с Team ID подписи — тогда macOS не спрашивает доступ к данным других приложений.
+    static let macID = "ML62XSB3UA.com.chumbulev.CalendarEnhancer"
+
     static var defaults: UserDefaults {
         #if os(iOS)
         UserDefaults(suiteName: id) ?? .standard
         #else
-        .standard
+        UserDefaults(suiteName: macID) ?? .standard
         #endif
     }
 
@@ -57,6 +61,8 @@ enum CalendarSettings {
         static let bellOpacityDark = "bellOpacityDark"
         static let bellHexLight = "bellHexLight"
         static let bellHexDark = "bellHexDark"
+        static let darkBackgroundHex = "widgetDarkBackgroundHex"
+        static let darkGradient = "widgetDarkGradient"
         static let bellInsetTop = "bellInsetTop"
         static let bellInsetRight = "bellInsetRight"
         static let defaultDayStart = "defaultDayStart"
@@ -64,6 +70,12 @@ enum CalendarSettings {
     }
 
     static let defaultCursorHex = "#D02D1E"
+    /// Фон календарных виджетов в тёмной теме и градиент к верху (светлее).
+    static let defaultDarkBackgroundHex = "#161618"
+    static var darkBackground: Color {
+        Color(hex: String((d.string(forKey: Key.darkBackgroundHex) ?? "").prefix(7))) ?? Color(hex: defaultDarkBackgroundHex)!
+    }
+    static var darkGradient: Bool { d.object(forKey: Key.darkGradient) == nil ? true : d.bool(forKey: Key.darkGradient) }
     /// Прежний цвет по умолчанию: если он сохранён, значит его не выбирали — берём новый.
     private static let oldDefaultCursorHex = "#E9534CFF"
 

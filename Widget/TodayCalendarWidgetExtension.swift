@@ -159,9 +159,16 @@ struct TodayWidgetView: View {
     /// Колонок явно (Half Day — одна); nil — по размеру: Large — 2, Extra Large — 3.
     var columns: Int?
     @Environment(\.widgetFamily) private var family
+    /// Отступы контента отключены в конфигурации — ставим системные сами, кроме выбранного края.
+    @Environment(\.widgetContentMargins) private var margins
 
     var body: some View {
+        let edge = entry.config.edgeWithoutMargin
         DayView(entry: entry, columnCount: columns ?? (family == .systemLarge ? 2 : 3))
+            .padding(.leading, margins.leading)
+            .padding(.trailing, margins.trailing)
+            .padding(.top, edge == .top ? 0 : margins.top)
+            .padding(.bottom, edge == .bottom ? 0 : margins.bottom)
     }
 }
 
@@ -201,7 +208,9 @@ struct DayView: View {
                         if idx == 0 {
                             AllDayList(events: entry.visibleEvents.filter(\.isAllDay), config: entry.config, mode: renderingMode)
                         }
-                        ColumnView(entry: entry, startMinute: col.start, endMinute: col.end, mode: renderingMode)
+                        ColumnView(entry: entry, startMinute: col.start, endMinute: col.end, mode: renderingMode,
+                                   // Half Day: начало события — в виджете выше, название там уже есть.
+                                   titleOnContinued: columnCount > 1)
                         // Под концом дня — давность последней синхронизации; последняя колонка сжимается.
                         // Подпись стоит у самого низа контента, от линии конца дня её отделяет тот же отступ.
                         if showsSync, let fetchedAt = staleSince {
@@ -332,6 +341,10 @@ struct ColumnView: View {
     let startMinute: Int
     let endMinute: Int
     let mode: WidgetRenderingMode
+    /// Показывать ли название у события, начавшегося раньше колонки.
+    var titleOnContinued = true
+
+    private func showsTitle(_ p: PlacedEvent) -> Bool { titleOnContinued || !p.continuesBefore }
 
     private let gutter: CGFloat = 20
     private let labelHeight: CGFloat = 12
@@ -354,9 +367,11 @@ struct ColumnView: View {
         GeometryReader { geo in
             let from = DayConfig.date(minute: startMinute, anchor: entry.anchor)
             let to = DayConfig.date(minute: endMinute, anchor: entry.anchor)
-            // Сверху оставляем место под подпись первого часа.
-            let top = labelHeight / 2
-            let height = max(geo.size.height - top - 1, 1)
+            // Сверху оставляем место под подпись первого часа. У края без отступа места под
+            // подпись нет: таймлайн доходит до самого края, а час на этой границе не рисуется.
+            let edge = entry.config.edgeWithoutMargin
+            let top = edge == .top ? 0 : labelHeight / 2
+            let height = max(geo.size.height - top - (edge == .bottom ? 0 : 1), 1)
             let span = to.timeIntervalSince(from)
             let y: (Date) -> CGFloat = { top + CGFloat($0.timeIntervalSince(from) / span) * height }
             let eventsWidth = geo.size.width - gutter
@@ -374,23 +389,47 @@ struct ColumnView: View {
                 return (top, max(bottom - top, px))
             }
 
+            let placed = Layout.place(entry.visibleEvents, from: from, to: to)
+            let hours = Array(stride(from: (startMinute + 59) / 60, through: endMinute / 60, by: 1)).filter { h in
+                !(edge == .top && h * 60 == startMinute) && !(edge == .bottom && h * 60 == endMinute)
+            }
+            let hourY: (Int) -> CGFloat = { top + CGFloat($0 * 60 - startMinute) / CGFloat(endMinute - startMinute) * height }
             ZStack(alignment: .topLeading) {
-                // Часовая сетка
-                ForEach(Array(stride(from: (startMinute + 59) / 60, through: endMinute / 60, by: 1)), id: \.self) { h in
-                    let yy = top + CGFloat(h * 60 - startMinute) / CGFloat(endMinute - startMinute) * height
+                // Часовая сетка: подписи и линии. Под плашками событий линии тусклее (по форме
+                // плашки, со скруглёнными углами).
+                ForEach(hours, id: \.self) { h in
                     Text("\(h % 24)")
                         .font(.system(size: 10, weight: .semibold).monospacedDigit())
                         .foregroundStyle(labelStyle)
                         .frame(width: gutter - 4, alignment: .trailing)
-                        .offset(y: yy - labelHeight / 2)
-                    Rectangle()
-                        .fill(gridStyle)
-                        .frame(width: eventsWidth, height: 0.5)
-                        .offset(x: gutter, y: snap(yy))
+                        .offset(y: hourY(h) - labelHeight / 2)
+                }
+                ZStack(alignment: .topLeading) {
+                    ForEach(hours, id: \.self) { h in
+                        Rectangle()
+                            .fill(gridStyle)
+                            .frame(width: eventsWidth, height: 0.5)
+                            .offset(x: gutter, y: snap(hourY(h)))
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                .mask {
+                    Canvas { context, size in
+                        context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
+                        context.blendMode = .destinationOut
+                        for p in placed {
+                            let (y0, h) = vertical(p)
+                            let laneWidth = eventsWidth / CGFloat(p.lanes)
+                            let r: CGFloat = 5
+                            let shape = UnevenRoundedRectangle(topLeadingRadius: p.continuesBefore ? 0 : r, bottomLeadingRadius: p.continuesAfter ? 0 : r,
+                                                               bottomTrailingRadius: p.continuesAfter ? 0 : r, topTrailingRadius: p.continuesBefore ? 0 : r)
+                            let rect = CGRect(x: gutter + CGFloat(p.lane) * laneWidth, y: y0, width: laneWidth - 2, height: h)
+                            context.fill(shape.path(in: rect), with: .color(.black.opacity(0.6)))
+                        }
+                    }
                 }
 
                 // События
-                let placed = Layout.place(entry.visibleEvents, from: from, to: to)
                 ForEach(placed) { p in
                     let laneWidth = eventsWidth / CGFloat(p.lanes)
                     // Перенесённое событие выходит за границу колонки до края цифр часа,
@@ -400,7 +439,8 @@ struct ColumnView: View {
                                inverted: isInverted(p.event, entry.config, mode),
                                continuesBefore: p.continuesBefore, continuesAfter: p.continuesAfter, mode: mode,
                                // Высота самой короткой (получасовой) плашки — по ней размер колокольчика.
-                               shortest: height * 30 * 60 / CGFloat(span) - lineHeight - 2 * px)
+                               shortest: height * 30 * 60 / CGFloat(span) - lineHeight - 2 * px,
+                               showsTitle: showsTitle(p))
                         .frame(width: laneWidth - 2, height: h)
                         .offset(x: gutter + CGFloat(p.lane) * laneWidth, y: y0)
                 }
@@ -486,6 +526,8 @@ struct EventBlock: View {
     let mode: WidgetRenderingMode
     /// Высота получасовой плашки в этом виджете.
     var shortest: CGFloat = 20
+    /// Название (у продолжения события в Half Day его нет — оно в виджете выше).
+    var showsTitle = true
     @Environment(\.colorScheme) private var scheme
     @Environment(\.widgetFamily) private var family
 
@@ -514,7 +556,7 @@ struct EventBlock: View {
         }()
         let titleTop: CGFloat = height > 16 ? 2 : 0
         let lineHeight = fontSize * 1.2
-        Text(event.title)
+        Text(showsTitle ? event.title : "")
             .font(.system(size: fontSize, weight: .semibold))
             .foregroundStyle(eventTextStyle(color, mode, scheme))
             .lineLimit(height > 30 ? 2 : 1)
@@ -583,20 +625,29 @@ struct EventBlock: View {
 enum Theme {
     static let cursor = Color(red: 0xE9 / 255, green: 0x53 / 255, blue: 0x4C / 255)
     /// Вертикальный градиент тёмного фона, как у системного виджета Calendar.
-    /// Темнее прежнего — как фон системных виджетов в тёмной теме.
-    static let darkBackgroundTop = Color(red: 0x24 / 255, green: 0x24 / 255, blue: 0x26 / 255)
-    static let darkBackgroundBottom = Color(red: 0x16 / 255, green: 0x16 / 255, blue: 0x18 / 255)
     static let darkLabel = Color(white: 0xB0 / 255)
     static let darkGrid = Color(white: 0x54 / 255)
 }
 
 /// Фон виджета по теме системы: белый или тёмный градиент, как у системного Calendar.
+/// Цвет, смешанный с белым (верх градиента фона в тёмной теме).
+func lighter(_ color: Color) -> Color {
+    if #available(iOS 18, macOS 15, *) { return color.mix(with: .white, by: 0.06) }
+    return color
+}
+
 struct WidgetBackground: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         if scheme == .dark {
-            LinearGradient(colors: [Theme.darkBackgroundTop, Theme.darkBackgroundBottom], startPoint: .top, endPoint: .bottom)
+            // Цвет — из настроек; с градиентом к верху он светлее (как у системных виджетов).
+            let base = CalendarSettings.darkBackground
+            if CalendarSettings.darkGradient {
+                LinearGradient(colors: [lighter(base), base], startPoint: .top, endPoint: .bottom)
+            } else {
+                base
+            }
         } else {
             Color.white
         }
@@ -658,6 +709,7 @@ private func dayWidgetConfiguration(kind: String, name: LocalizedStringResource,
     .configurationDisplayName(name)
     .description("")
     .supportedFamilies([family])
+    .contentMarginsDisabled()
 }
 
 /// На iOS 18+ весь виджет — кнопка, которая сразу открывает Calendar, минуя приложение.

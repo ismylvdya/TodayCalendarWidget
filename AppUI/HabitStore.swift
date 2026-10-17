@@ -151,6 +151,22 @@ final class HabitStore: ObservableObject {
         persist()
     }
 
+    /// Дни из CSV в одну привычку: уже отмеченные дни и заметки не меняются. Возвращает, сколько
+    /// дней добавлено.
+    func importDays(_ id: UUID, states: [String: HabitDayState], notes: [String: String]) -> Int {
+        guard let i = db.habits.firstIndex(where: { $0.id == id }) else { return 0 }
+        var added = 0
+        for (key, state) in states where !db.habits[i].completions.contains(key) {
+            guard let day = HabitDay.date(key) else { continue }
+            if state == .twice { db.habits[i].twiceADay = true }
+            db.habits[i].setState(state, day: day)
+            added += 1
+        }
+        for (key, note) in notes where db.habits[i].notes[key] == nil { db.habits[i].notes[key] = note }
+        persist()
+        return added
+    }
+
     /// Импорт из CSV: привычки узнаются по ID или названию, остальные создаются.
     /// Уже отмеченные дни и заметки не перезаписываются. Возвращает (новых привычек, добавленных дней).
     func importCSV(_ imported: [HabitCSV.Imported]) -> (habits: Int, days: Int) {

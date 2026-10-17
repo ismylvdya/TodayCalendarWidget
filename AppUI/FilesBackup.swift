@@ -31,7 +31,7 @@ enum FilesBackup {
         HabitSettings.Key.twiceInnerSize, HabitSettings.Key.twiceDarker, HabitSettings.Key.twiceDarkness,
         HabitSettings.Key.reasonAlertDays, HabitSettings.Key.squircleButton, HabitSettings.Key.mainSquircle,
         HabitSettings.Key.mainSquircleSize, HabitSettings.Key.mainCheckboxSize,
-        CalendarSettings.Key.bellInsetTop, CalendarSettings.Key.bellInsetRight, ToastSettings.Key.width, ToastSettings.Key.corners,
+        CalendarSettings.Key.bellInsetTop, CalendarSettings.Key.bellInsetRight, CalendarSettings.Key.darkBackgroundHex, CalendarSettings.Key.darkGradient, ToastSettings.Key.width, ToastSettings.Key.corners,
     ]
 
     // MARK: Своя папка

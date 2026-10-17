@@ -1,6 +1,7 @@
 import AppKit
 import EventKit
 import ServiceManagement
+import SwiftUI
 import UserNotifications
 import WidgetKit
 
@@ -13,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastReload = Date.distantPast
     private var lastAlertSync = Date.distantPast
     private var timer: Timer?
+    /// Значок в строке меню: настройки и выход.
+    private var statusItem: NSStatusItem?
+    private var preferencesWindow: NSWindow?
 
     static func main() {
         let app = NSApplication.shared
@@ -23,7 +27,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        try? SMAppService.mainApp.register()
+        // Запуск при входе в систему — по умолчанию включён (выключить можно в меню).
+        if !UserDefaults.standard.bool(forKey: "loginItemConfigured") {
+            try? SMAppService.mainApp.register()
+            UserDefaults.standard.set(true, forKey: "loginItemConfigured")
+        }
+        setUpStatusItem()
         UNUserNotificationCenter.current().delegate = self
         AlertScheduler.registerCategory()
         SyncIssues.handler = { message in
@@ -126,5 +135,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         [.banner, .sound, .list]
+    }
+
+    // MARK: Строка меню
+
+    private func setUpStatusItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        if let image = NSImage(named: "MenuBarIcon") {
+            image.size = NSSize(width: 16, height: 16)
+            image.isTemplate = true
+            item.button?.image = image
+        }
+        item.button?.toolTip = "Calendar Enhancer"
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Preferences…", action: #selector(openPreferences), keyEquivalent: ","))
+        let login = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        login.target = self
+        menu.addItem(login)
+        menu.delegate = self
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit Calendar Enhancer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        for entry in menu.items where entry.action == #selector(openPreferences) { entry.target = self }
+        item.menu = menu
+        statusItem = item
+    }
+
+    @objc private func toggleLaunchAtLogin(_ item: NSMenuItem) {
+        let service = SMAppService.mainApp
+        if service.status == .enabled { try? service.unregister() } else { try? service.register() }
+    }
+
+    @objc private func openPreferences() {
+        if preferencesWindow == nil {
+            let view = PreferencesView { [weak self] in
+                WidgetCenter.shared.reloadAllTimelines()
+                Task { await self?.syncAlerts() }
+            }
+            let window = NSWindow(contentViewController: NSHostingController(rootView: view))
+            window.title = "Calendar Enhancer Preferences"
+            window.styleMask = [.titled, .closable]
+            window.isReleasedWhenClosed = false
+            window.center()
+            preferencesWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        preferencesWindow?.makeKeyAndOrderFront(nil)
+    }
+}
+
+extension AppDelegate: NSMenuDelegate {
+    /// Галочка «Launch at Login» — по текущему состоянию (его можно поменять и в Системных настройках).
+    func menuWillOpen(_ menu: NSMenu) {
+        menu.items.first { $0.action == #selector(toggleLaunchAtLogin(_:)) }?.state =
+            SMAppService.mainApp.status == .enabled ? .on : .off
     }
 }

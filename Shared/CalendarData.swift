@@ -17,6 +17,8 @@ struct DayConfig {
     var hideAllDay = false
     /// Прошедшие события чуть приглушаются во всех календарях.
     var dimPastEvents = false
+    /// Край виджета без внешнего отступа (чтобы ставить виджеты вплотную друг под другом).
+    var edgeWithoutMargin: MarginEdge = .none
     /// Календари, чьи события (включая all-day) приглушены всегда.
     var dimCalendarIDs: Set<String> = []
 
@@ -131,4 +133,9 @@ enum CalendarData {
         else { return [0.4, 0.55, 1.0] }
         return comps.prefix(3).map(Double.init)
     }
+}
+
+/// Край виджета без внешнего отступа.
+enum MarginEdge: Int {
+    case none, top, bottom
 }

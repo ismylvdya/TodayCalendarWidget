@@ -6,13 +6,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 DD=build/DDdmg
-APP="$DD/Build/Products/Release/Calendar Enhancer.app"
 DMG=build/CalendarEnhancer.dmg
 STAGE=build/dmg
-
-xcodegen generate -q
-xcodebuild -project TodayCalendarWidget.xcodeproj -scheme TodayCalendarWidget -configuration Release \
-    -destination 'platform=macOS' -derivedDataPath $DD build | grep -E "error|BUILD"
+APP=$(./scripts/build-mac.sh $DD | tail -1)
 
 rm -rf $STAGE && mkdir -p $STAGE
 ditto "$APP" "$STAGE/Calendar Enhancer.app"

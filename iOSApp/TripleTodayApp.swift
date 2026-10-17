@@ -66,6 +66,7 @@ enum ToastSettings {
 
 struct ToastView: View {
     let toast: Toast
+    @Environment(\.colorScheme) private var scheme
     /// Свёрнута — не больше двух строк с многоточием; развёрнута — весь текст.
     var expanded = false
     @AppStorage(ToastSettings.Key.width, store: AppGroup.defaults) private var width = ToastSettings.defaultWidth
@@ -94,7 +95,9 @@ struct ToastView: View {
         .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
         // Под плашкой и ещё примерно на 25 pt вокруг — системное размытие, мягко сходящее на нет.
         .background {
+            // В тёмной теме размытие тёмное (материал там светлит чёрный фон).
             Rectangle().fill(.ultraThinMaterial)
+                .overlay(scheme == .dark ? Color.black.opacity(0.75) : .clear)
                 .padding(-25)
                 .mask(shape.padding(-14).blur(radius: 11))
                 .allowsHitTesting(false)
@@ -147,6 +150,9 @@ struct RootView: View {
                     _ = try? await store.requestFullAccessToEvents()
                 }
                 if !ReminderSync.hasAccess { _ = await ReminderSync.requestAccess() }
+                // Выбора иконки больше нет: иконка сама светлая или тёмная по теме. Выбранную
+                // раньше другую иконку возвращаем к основной.
+                if UIApplication.shared.alternateIconName != nil { try? await UIApplication.shared.setAlternateIconName(nil) }
                 // При каждом запуске: разрешение на уведомления (первый раз — с запросом) и синхронизация.
                 await AlertScheduler.requestAuthorization()
                 await AlertScheduler.sync()

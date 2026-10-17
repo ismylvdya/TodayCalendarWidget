@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Собирает HabitsOnReminders.ipa для установки через AltStore / SideStore
+# Собирает Habits.ipa для установки через AltStore / SideStore
 # (они сами переподписывают приложение Apple ID пользователя).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,5 +20,5 @@ APP=build/ipa/Payload/TripleToday.app
 codesign --force --sign - --entitlements iOSWidget/Widget.entitlements "$APP/PlugIns/TripleTodayWidget.appex"
 codesign --force --sign - --entitlements iOSApp/App.entitlements "$APP"
 rm -f build/*.ipa
-(cd build/ipa && zip -qry ../HabitsOnReminders.ipa Payload)
-echo "build/HabitsOnReminders.ipa"
+(cd build/ipa && zip -qry ../Habits.ipa Payload)
+echo "build/Habits.ipa"

@@ -39,6 +39,8 @@
 	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>The widget shows today's calendar events.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Habit images you export are saved to Photos.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>Completed reminders are added to your habit history.</string>
 	<key>UIFileSharingEnabled</key>

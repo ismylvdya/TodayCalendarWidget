@@ -1,15 +1,31 @@
 #!/bin/zsh
+# Выпуск только для Mac: ./scripts/release.sh --mac 1.5.1 "Что нового на Mac" — версия, dmg,
+# коммит, GitHub Release с одним dmg; источник AltStore не меняется.
 # Выпуск новой версии: ./scripts/release.sh 1.1 "Что нового" ["Что нового на Mac"]
 # Ставит версию (номер сборки +1), собирает ipa для iPhone и dmg для Mac, добавляет версию
 # в источник AltStore (altstore-source.json), коммитит, пушит и создаёт один GitHub Release
 # с обоими файлами. Третий аргумент — заметки для Mac; без него dmg не собирается.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [ "${1:-}" = "--mac" ]; then
+    VERSION=${2:?версия}; NOTES=${3:-"Version $VERSION"}; REPO=ismylvdya/TodayCalendarWidget
+    BUILD=$(( $(sed -n 's/.*CURRENT_PROJECT_VERSION: "\([0-9]*\)".*/\1/p' project.yml) + 1 ))
+    sed -i '' "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" project.yml
+    DMG=$(./scripts/build-dmg.sh | tail -1)
+    git add project.yml
+    git commit -q -m "Release $VERSION (Mac)"
+    git push -q origin HEAD
+    gh release create "v$VERSION" "$DMG" --repo "$REPO" --title "$VERSION (Mac)" --notes "## Mac — Calendar Enhancer (CalendarEnhancer.dmg)
+Open the dmg and drag Calendar Enhancer to Applications. The app is not notarized: the first time, right-click it → Open.
+
+$NOTES"
+    exit 0
+fi
 VERSION=${1:?версия, например 1.1}
 NOTES=${2:-"Version $VERSION"}
 MAC_NOTES=${3:-}
 REPO=ismylvdya/TodayCalendarWidget
-IPA=build/HabitsOnReminders.ipa
+IPA=build/Habits.ipa
 
 BUILD=$(( $(sed -n 's/.*CURRENT_PROJECT_VERSION: "\([0-9]*\)".*/\1/p' project.yml) + 1 ))
 sed -i '' "s/MARKETING_VERSION: \".*\"/MARKETING_VERSION: \"$VERSION\"/; s/CURRENT_PROJECT_VERSION: \".*\"/CURRENT_PROJECT_VERSION: \"$BUILD\"/" project.yml
@@ -26,7 +42,7 @@ app["versions"] = [v for v in app["versions"] if v["version"] != version]
 app["versions"].insert(0, {
     "version": version, "buildVersion": build, "date": datetime.date.today().isoformat(),
     "localizedDescription": notes, "size": int(size), "minOSVersion": "18.0",
-    "downloadURL": f"https://github.com/{repo}/releases/download/v{version}/HabitsOnReminders.ipa",
+    "downloadURL": f"https://github.com/{repo}/releases/download/v{version}/Habits.ipa",
 })
 # Старые поля у самого приложения — для сборок AltStore, которые не читают список versions.
 latest = app["versions"][0]
@@ -40,7 +56,7 @@ git add project.yml altstore-source.json
 git commit -q -m "Release $VERSION"
 git push -q origin HEAD
 if [ -n "$MAC_NOTES" ]; then
-    BODY="## iPhone — Habits (HabitsOnReminders.ipa)
+    BODY="## iPhone — Habits (Habits.ipa)
 Install or update through AltStore (the source updates by itself).
 
 $NOTES
