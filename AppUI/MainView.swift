@@ -108,8 +108,8 @@ struct TopFade: View {
 extension View {
     /// Вложенная страница: большой заголовок поверх содержимого (на месте невидимого заголовка
     /// с координатами `rowY`); при прокрутке он плавно уменьшается и встаёт в панель одной строкой.
-    func subpageTitle(_ title: String, rowY: CGFloat?, hidden: Bool = false, color: Color = .primary) -> some View {
-        modifier(SubpageTitle(title: title, rowY: rowY, hidden: hidden, color: color))
+    func subpageTitle(_ title: String, rowY: CGFloat?, hidden: Bool = false, color: Color = .primary, liveY: Bool = false) -> some View {
+        modifier(SubpageTitle(title: title, rowY: rowY, hidden: hidden, color: color, liveY: liveY))
     }
 
     /// Страница-список с большим заголовком: заголовок рисуется поверх списка (на месте пустой
@@ -179,6 +179,9 @@ struct SubpageTitle: ViewModifier {
     let hidden: Bool
     /// Цвет заголовка (у привычки — её цвет).
     var color: Color = .primary
+    /// `rowY` — положение в содержимом прокрутки (не меняется при прокрутке): на экране оно
+    /// сдвинуто на прокрутку.
+    var liveY = false
     @State private var offset: CGFloat = 0
     @State private var offsetAtRowY: CGFloat = 0
 
@@ -210,7 +213,7 @@ struct SubpageTitle: ViewModifier {
                     GeometryReader { g in
                         let top = g.safeAreaInsets.top
                         // Всё — в координатах экрана (слой поднят на высоту панели).
-                        let y = rowY - (offset - offsetAtRowY)
+                        let y = liveY ? rowY - offset : rowY - (offset - offsetAtRowY)
                         let docked = dockedSize
                         let dockedLine = Self.font(docked).lineHeight
                         // Маленький — одной строкой в панели, центр на уровне кнопки «назад».
@@ -1024,7 +1027,8 @@ struct HabitDetailView: View {
                                 .opacity(0.001)
                                 .contentShape(Rectangle())
                                 .onTapGesture { editingTitle = true }
-                                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(PageTitleRow.space)).minY } action: { titleY = $0 }
+                                // Положение в содержимом страницы — не меняется при прокрутке.
+                                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("habitPage")).minY } action: { titleY = $0 }
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -1131,12 +1135,13 @@ struct HabitDetailView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 32)
+                .coordinateSpace(name: "habitPage")
             }
             .background(Color(.systemGroupedBackground))
             .refreshable { await store.forceRefresh() }
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY } action: { pageBottom = $0 }
             .navigationBarTitleDisplayMode(.inline)
-            .subpageTitle(habit.title, rowY: titleY, hidden: editingTitle, color: habit.color)
+            .subpageTitle(habit.title, rowY: titleY, hidden: editingTitle, color: habit.color, liveY: true)
             .alert(noteDay.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "Note",
                    isPresented: Binding(get: { noteDay != nil }, set: { if !$0 { noteDay = nil } })) {
                 TextField("Note", text: $noteText)
@@ -1838,6 +1843,7 @@ struct HabitSettingsView: View {
     @AppStorage(HabitSettings.Key.partialSymbol, store: AppGroup.defaults) private var partialSymbol = "tortoise.fill"
     @AppStorage(HabitSettings.Key.overSymbol, store: AppGroup.defaults) private var overSymbol = "bolt.fill"
     @AppStorage(HabitSettings.Key.partialIconScale, store: AppGroup.defaults) private var partialIconScale = 0.65
+    @AppStorage(HabitSettings.Key.partialDotScale, store: AppGroup.defaults) private var partialDotScale = 0.35
     @AppStorage(HabitSettings.Key.overIconScale, store: AppGroup.defaults) private var overIconScale = 0.65
     @AppStorage(HabitSettings.Key.overIconDarker, store: AppGroup.defaults) private var overDarker = true
     @AppStorage(HabitSettings.Key.overIconDarkness, store: AppGroup.defaults) private var overDarkness = 0.6
@@ -1869,7 +1875,7 @@ struct HabitSettingsView: View {
                    stripeWidth: stripeWidth, doneStripeOpacity: doneStripeOpacity, undoneStripeOpacity: undoneStripeOpacity,
                    partialSymbol: partialSymbol.isEmpty ? "tortoise.fill" : partialSymbol,
                    overSymbol: overSymbol.isEmpty ? "bolt.fill" : overSymbol,
-                   partialIconScale: partialIconScale, overIconScale: overIconScale,
+                   partialIconScale: partialIconScale, partialDotScale: partialDotScale, overIconScale: overIconScale,
                    overIconDarker: overDarker, overIconDarkness: overDarkness,
                    twicePattern: TwicePattern(rawValue: twicePattern) ?? .innerSquare,
                    twiceSymbol: twiceSymbol.isEmpty ? "2.circle.fill" : twiceSymbol,
@@ -2044,6 +2050,12 @@ struct HabitSettingsView: View {
                     VStack(alignment: .leading) {
                         Text("Not done stripes opacity: \(Int(undoneStripeOpacity * 100))%")
                         Slider(value: $undoneStripeOpacity, in: 0...1)
+                    }
+                }
+                if pattern == PartialPattern.dot.rawValue {
+                    VStack(alignment: .leading) {
+                        Text("Dot size: \(Int(partialDotScale * 100))% of the day")
+                        Slider(value: $partialDotScale, in: 0.05...1)
                     }
                 }
                 if pattern == PartialPattern.icon.rawValue {

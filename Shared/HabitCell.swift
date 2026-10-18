@@ -130,6 +130,10 @@ struct HabitCell: View {
             shape.fill(color.opacity(style.undoneStripeOpacity))
             DiagonalStripes(width: style.stripeWidth).fill(color.opacity(style.doneStripeOpacity))
                 .clipShape(shape).widgetAccentable()
+        case .dot:
+            Circle().fill(color)
+                .frame(width: size * style.partialDotScale, height: size * style.partialDotScale)
+                .widgetAccentable()
         case .half:
             HStack(spacing: 0) {
                 color.widgetAccentable()

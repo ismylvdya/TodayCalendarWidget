@@ -146,6 +146,7 @@ enum HabitSettings {
         static let partialSymbol = "habitPartialSymbol"
         static let overSymbol = "habitOverSymbol"
         static let partialIconScale = "habitPartialIconScale"
+        static let partialDotScale = "habitPartialDotScale"
         static let overIconScale = "habitOverIconScale"
         static let overIconDarker = "habitOverIconDarker"
         static let overIconDarkness = "habitOverIconDarkness"
@@ -218,6 +219,7 @@ enum HabitSettings {
                    partialSymbol: symbol(Key.partialSymbol, "tortoise.fill"),
                    overSymbol: symbol(Key.overSymbol, "bolt.fill"),
                    partialIconScale: double(Key.partialIconScale, 0.65),
+                   partialDotScale: double(Key.partialDotScale, 0.35),
                    overIconScale: double(Key.overIconScale, 0.65),
                    overIconDarker: d.object(forKey: Key.overIconDarker) == nil ? true : d.bool(forKey: Key.overIconDarker),
                    overIconDarkness: double(Key.overIconDarkness, 0.6),
@@ -261,7 +263,7 @@ enum UndonePattern: String, CaseIterable, Identifiable {
 }
 
 enum PartialPattern: String, CaseIterable, Identifiable {
-    case icon, lighter, outline, diagonal, half
+    case icon, lighter, outline, diagonal, half, dot
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -270,6 +272,7 @@ enum PartialPattern: String, CaseIterable, Identifiable {
         case .outline: "Outline"
         case .diagonal: "Diagonal stripes"
         case .half: "Half filled"
+        case .dot: "Dot"
         }
     }
 }
@@ -292,6 +295,8 @@ struct HabitStyle {
     var overSymbol = "bolt.fill"
     /// Размер иконок — доля стороны клетки.
     var partialIconScale = 0.65
+    /// Точка недоделанного дня — доля стороны клетки.
+    var partialDotScale = 0.35
     var overIconScale = 0.65
     /// Иконка перевыполнения темнее клетки (смесь цвета привычки с чёрным), а не светлее.
     var overIconDarker = true
