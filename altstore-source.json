@@ -15,6 +15,15 @@
       "tintColor": "#3478F6",
       "versions": [
         {
+          "version": "1.6.1",
+          "buildVersion": "18",
+          "date": "2026-10-19",
+          "localizedDescription": "New Moscow Time widget for the line above the Lock Screen clock: your own text (emoji and invisible characters like \\u2800) followed by the time in Moscow (UTC+3). Set it up in Clock Enhancer Settings.",
+          "size": 1469543,
+          "minOSVersion": "18.0",
+          "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.6.1/Habits.ipa"
+        },
+        {
           "version": "1.6",
           "buildVersion": "17",
           "date": "2026-10-18",
@@ -168,11 +177,11 @@
           "NSRemindersFullAccessUsageDescription": "Completed reminders are added to your habit history."
         }
       },
-      "version": "1.6",
-      "versionDate": "2026-10-18",
-      "versionDescription": "New light and dark app icon (follows the system theme). Habit names show in their colors, and page titles shrink into the bar smoothly. Export a habit as an image (Export Image… on its page) and import days into a habit from a CSV. \"Count twice days as 2\" now sits under Twice a day and applies everywhere. The habit grid draws only the weeks you see, so scrolling is smoother. Partially done days can be shown as a dot. Calendar widget settings are grouped into Light and Dark, with a dark background color and gradient option, and hour lines under events are dimmer.",
-      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.6/Habits.ipa",
-      "size": 1446927
+      "version": "1.6.1",
+      "versionDate": "2026-10-19",
+      "versionDescription": "New Moscow Time widget for the line above the Lock Screen clock: your own text (emoji and invisible characters like \\u2800) followed by the time in Moscow (UTC+3). Set it up in Clock Enhancer Settings.",
+      "downloadURL": "https://github.com/ismylvdya/TodayCalendarWidget/releases/download/v1.6.1/Habits.ipa",
+      "size": 1469543
     }
   ],
   "news": [],
