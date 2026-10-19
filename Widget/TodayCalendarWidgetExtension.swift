@@ -666,6 +666,7 @@ struct TodayWidgets: WidgetBundle {
         #else
         HabitWidget()
         HabitGoalWidget()
+        MoscowClockWidget()
         #endif
     }
 }

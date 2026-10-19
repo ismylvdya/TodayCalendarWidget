@@ -388,3 +388,39 @@ struct HabitGoalWidget: Widget {
     }
 }
 #endif
+
+// MARK: - Москва на экране блокировки
+
+#if os(iOS)
+struct MoscowEntry: TimelineEntry {
+    let date: Date
+    let line: String
+}
+
+struct MoscowProvider: TimelineProvider {
+    func placeholder(in context: Context) -> MoscowEntry { MoscowEntry(date: Date(), line: MoscowClock.line(Date())) }
+    func getSnapshot(in context: Context, completion: @escaping (MoscowEntry) -> Void) { completion(placeholder(in: context)) }
+
+    /// Кадр на каждую минуту на час вперёд.
+    func getTimeline(in context: Context, completion: @escaping (Timeline<MoscowEntry>) -> Void) {
+        let start = Calendar.current.dateInterval(of: .minute, for: Date())?.start ?? Date()
+        let entries = (0..<60).map { i -> MoscowEntry in
+            let d = start.addingTimeInterval(Double(i) * 60)
+            return MoscowEntry(date: d, line: MoscowClock.line(d))
+        }
+        completion(Timeline(entries: entries, policy: .atEnd))
+    }
+}
+
+/// Строка над временем на экране блокировки: свой текст и московское время.
+struct MoscowClockWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "MoscowClock", provider: MoscowProvider()) { entry in
+            Text(entry.line).containerBackground(for: .widget) { Color.clear }
+        }
+        .configurationDisplayName("Moscow Time")
+        .description("Your text and the time in Moscow (UTC+3).")
+        .supportedFamilies([.accessoryInline])
+    }
+}
+#endif

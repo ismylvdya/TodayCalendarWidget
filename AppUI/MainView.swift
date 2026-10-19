@@ -282,7 +282,7 @@ struct PageTitleRow: View {
 /// Экраны приложения. Все переходы — через один тип маршрута: смешение переходов по значению
 /// и по экрану в одном стеке сбрасывало навигацию.
 enum Route: Hashable {
-    case habit(UUID), archive, trash, habitSettings, calendarSettings
+    case habit(UUID), archive, trash, habitSettings, calendarSettings, clockSettings
 }
 
 /// Главный экран: привычки, архив, настройки привычек и календаря.
@@ -357,6 +357,12 @@ struct MainView: View {
                     NavigationLink(value: Route.calendarSettings) { PlainLabel("Calendar Enhancer Settings", systemImage: "gear") }
                 } header: {
                     RoundedHeader("Calendar")
+                }
+                .listSectionSpacing(18)
+                Section {
+                    NavigationLink(value: Route.clockSettings) { PlainLabel("Clock Enhancer Settings", systemImage: "gear") }
+                } header: {
+                    RoundedHeader("Clock")
                 } footer: {
                     // Внизу главной — версия со сборкой и подпись.
                     VStack(spacing: 2) {
@@ -388,6 +394,7 @@ struct MainView: View {
                 case .trash: ArchiveView(store: store, trash: true)
                 case .habitSettings: HabitSettingsView(store: store)
                 case .calendarSettings: CalendarSettingsView(store: store)
+                case .clockSettings: ClockSettingsView()
                 }
             }
             .sheet(isPresented: $showingNewHabit) { NewHabitView(store: store) }
@@ -441,6 +448,36 @@ extension View {
         } message: {
             Text("Added to the reasons of all habits (Habits on Reminders Settings → Why Not Done).")
         }
+    }
+}
+
+/// Строка над временем на экране блокировки (виджет Moscow Time): свой текст и время по Москве.
+struct ClockSettingsView: View {
+    @AppStorage(MoscowClock.prefixKey, store: AppGroup.defaults) private var prefix = ""
+    @State private var titleY: CGFloat?
+
+    var body: some View {
+        Form {
+            PageTitleRow("Clock Enhancer Settings", y: $titleY)
+            Section {
+                TextField("Text before the time", text: $prefix)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                // Как будет на экране блокировки (обновляется раз в минуту).
+                TimelineView(.everyMinute) { context in
+                    Text("“" + MoscowClock.line(context.date, prefix: prefix) + "”")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                RoundedHeader("Lock Screen")
+            } footer: {
+                Text("Add the Moscow Time widget above the clock on the Lock Screen. It shows this text, then the time in Moscow (UTC+3) from your iPhone's own clock, which iOS keeps in sync over the network and keeps running without it. Emoji work. Type invisible characters as codes — \\u2800, \\u{3000} or U+2800; they become the characters. iOS trims ordinary spaces at the start, so use one that isn't a space, for example \\u2800 (Braille blank).")
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .subpageTitle("Clock Enhancer Settings", rowY: titleY)
+        .contentMargins(.top, -PageTitle.subpageRaise, for: .scrollContent)
+        .onDisappear { WidgetCenter.shared.reloadTimelines(ofKind: "MoscowClock") }
     }
 }
 
